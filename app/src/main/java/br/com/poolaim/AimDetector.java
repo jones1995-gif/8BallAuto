@@ -536,7 +536,7 @@ public final class AimDetector {
         if(pixels==null||previous==null||pixels.length<w*h) return;
         Bounds b=new Bounds(Math.max(0,Math.round(previous.left)),Math.max(0,Math.round(previous.top)),
                 Math.min(w-1,Math.round(previous.right)),Math.min(h-1,Math.round(previous.bottom)));
-        if(previous.hasCollision) {
+        if(previous.hasCollision && previous.branches.length>0) {
             for(Branch branch:previous.branches) {
                 float sx=branch.x+branch.dx*Math.max(0,branch.length);
                 float sy=branch.y+branch.dy*Math.max(0,branch.length);

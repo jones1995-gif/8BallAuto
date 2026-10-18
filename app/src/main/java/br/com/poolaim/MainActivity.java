@@ -28,8 +28,8 @@ public class MainActivity extends Activity {
         layout.setBackgroundColor(Color.rgb(13,21,29));
         ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.bola_8);
         layout.addView(icon,new LinearLayout.LayoutParams(-1,140));
-        TextView title=text("POOL AIM AUTO · BETA 0.6",24,Color.WHITE);title.setTypeface(null,Typeface.BOLD);layout.addView(title);
-        layout.addView(text("Bolinha 8 flutuante, linhas brancas finas, detecção experimental de colisões e projeções nas tabelas.",16,0xffd1dae3));
+        TextView title=text("POOL AIM AUTO · BETA 0.6.1",24,Color.WHITE);title.setTypeface(null,Typeface.BOLD);layout.addView(title);
+        layout.addView(text("Bolinha 8 flutuante, linhas brancas finas, revisão do bloqueio das linhas, diagnóstico visual e projeções nas tabelas.",16,0xffd1dae3));
         layout.addView(text("A captura de tela precisa de sua autorização. Não seleciona bolas manualmente nem controla o jogo. Resultados podem estar incorretos.",14,0xffd1dae3));
         Button overlay=button("1. Permitir sobreposição");overlay.setOnClickListener(v->{
             if(!Settings.canDrawOverlays(this))startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));

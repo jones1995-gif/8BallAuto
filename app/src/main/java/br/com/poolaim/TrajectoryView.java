@@ -12,6 +12,7 @@ public class TrajectoryView extends View {
     private AimDetector.Result result;
     private int frameWidth = 1, frameHeight = 1;
     private boolean showRails = true;
+    private boolean testVisible = false;
 
     public TrajectoryView(Context context) {
         super(context);
@@ -35,8 +36,28 @@ public class TrajectoryView extends View {
         invalidate();
     }
 
+    /** A controlled visual check; independent of the capture/detector. */
+    public void setTestVisible(boolean visible) {
+        testVisible=visible;
+        invalidate();
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if(testVisible){
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(Color.WHITE);
+            paint.setAlpha(255);
+            paint.setStrokeWidth(2.0f);
+            float x1=getWidth()*.25f, y1=getHeight()*.58f;
+            float x2=getWidth()*.75f, y2=getHeight()*.40f;
+            canvas.drawLine(x1,y1,x2,y2,paint);
+            canvas.drawCircle(x2,y2,8f,paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextSize(28f);
+            canvas.drawText("TESTE DE LINHA",x1,y1-18f,paint);
+            paint.setStyle(Paint.Style.STROKE);
+        }
         if (result == null) return;
         float sx = getWidth() / (float) frameWidth;
         float sy = getHeight() / (float) frameHeight;
@@ -54,7 +75,7 @@ public class TrajectoryView extends View {
             return;
         }
 
-        if (result.hasCollision) {
+        if (ProjectionMode.drawBranches(result)) {
             // The game already draws the incoming guide and the visible parts
             // of the two outgoing collision lines. Only draw the extensions.
             for (AimDetector.Branch branch : result.branches) {
@@ -63,6 +84,10 @@ public class TrajectoryView extends View {
                 drawReflectedRay(canvas,x,y,branch.dx,branch.dy,left,top,right,bottom,showRails?3:1,scale);
             }
         } else {
+            // A detected contact WITHOUT outgoing segments must not suppress
+            // drawing entirely (this was the 0.6 invisible-line regression).
+            // Until the branches can be read, show only an approximate extension
+            // of the incoming direction rather than fabricating two paths.
             // Preserve the native line and begin just beyond its visible endpoint.
             float nativeLength=Math.max(5f,result.guideLength);
             float x=result.startX + result.dx * (nativeLength + 1.0f);

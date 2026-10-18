@@ -52,6 +52,7 @@ public class AutoOverlayService extends Service {
     private ImageReader reader;
     private int captureWidth,captureHeight,density;
     private long lastFrame=0;
+    private int processedFrames=0, detectedFrames=0;
     private boolean rails=true;
     private boolean hasDetection=false;
     private final AimStabilizer stabilizer = new AimStabilizer(0);
@@ -80,6 +81,7 @@ public class AutoOverlayService extends Service {
         if(bubble==null)buildOverlay();
         if(projection!=null)closeProjection();
         motionGate.reset();stabilizer.reset();lastDisplayedGeometry=null;
+        processedFrames=0;detectedFrames=0;lastFrame=0;
         int result=intent.getIntExtra("resultCode",0);
         Intent data;
         if(Build.VERSION.SDK_INT>=33)data=intent.getParcelableExtra("resultData",Intent.class);
@@ -144,6 +146,12 @@ public class AutoOverlayService extends Service {
             int[] detectorPixels=rgb.clone();
             AimDetector.maskOverlayExtensions(detectorPixels,fw,fh,lastDisplayedGeometry);
             AimDetector.Result raw=AimDetector.detect(detectorPixels,fw,fh);
+            processedFrames++;
+            if(raw!=null)detectedFrames++;
+            // The native guide is only present in the aiming phase. Moving the
+            // cue also changes many pixels, so it must NOT be treated as a shot.
+            // Once the native guide disappears, the motion gate is allowed to
+            // hide predictions until the table is stable again.
             boolean ballsMoving=motionGate.update(rgb,fw,fh,raw);
             AimDetector.Result res=null;
             if(ballsMoving) {
@@ -158,15 +166,18 @@ public class AutoOverlayService extends Service {
                 lastDisplayedGeometry=null;
             }
             final boolean movingNow=ballsMoving;
+            final int total=processedFrames;
+            final int found=detectedFrames;
             final AimDetector.Result shown=res;
             main.post(()->{
                 if(drawing!=null)drawing.update(shown,fw,fh);
                 hasDetection=shown!=null;
-                if(movingNow) statusText("Bolas em movimento • linhas ocultas");
-                else if(shown==null) statusText("Procurando a mira do jogo...");
-                else if(shown.hasCollision && shown.branches.length>0) statusText("Colisão detectada • "+shown.branches.length+" saída(s)");
-                else if(shown.hasCollision) statusText("Contato detectado • procurando linhas de saída");
-                else statusText("Mira acompanhada • aguardando colisão");
+                String diagnostic="\nImagens: "+total+" | linhas: "+found+" | captura: "+captureWidth+"x"+captureHeight;
+                if(movingNow) statusText("Bolas em movimento • projeção oculta"+diagnostic);
+                else if(shown==null) statusText("Guia não encontrada • confira captura de tela inteira"+diagnostic);
+                else if(shown.hasCollision && shown.branches.length>0) statusText("Colisão • "+shown.branches.length+" saída(s)"+diagnostic);
+                else if(shown.hasCollision) statusText("Contato sem saída: prolongamento provisório"+diagnostic);
+                else statusText("Mira detectada • linha estendida"+diagnostic);
             });
         }catch(Exception ex){main.post(()->statusText("Falha ao ler imagem"));}
         finally{if(img!=null)img.close();}
@@ -210,6 +221,15 @@ public class AutoOverlayService extends Service {
         menu.setPadding(dp(13),dp(10),dp(13),dp(10));menu.setBackgroundColor(0xee111e2b);
         status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(12);status.setText(hasDetection?"Mira encontrada":"Procurando a mira do jogo...");
         menu.addView(status);
+        TextView visualTest=menuItem("Teste da linha branca (6 s)");
+        visualTest.setOnClickListener(v->{
+            // This checks that overlay drawing is visible independently of
+            // screen capture and computer vision; it never selects any ball.
+            if(drawing!=null)drawing.setTestVisible(true);
+            statusText("Linha de teste ativa por 6 segundos");
+            main.postDelayed(()->{if(drawing!=null)drawing.setTestVisible(false);},6000);
+        });
+        menu.addView(visualTest);
         TextView railsButton=menuItem("Tabelas: ATIVADAS");
         railsButton.setOnClickListener(v->{rails=!rails;drawing.setShowRails(rails);railsButton.setText(rails?"Tabelas: ATIVADAS":"Tabelas: DESLIGADAS");});
         menu.addView(railsButton);

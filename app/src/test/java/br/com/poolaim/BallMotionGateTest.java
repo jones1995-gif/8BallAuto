@@ -18,13 +18,22 @@ public class BallMotionGateTest {
                 new AimDetector.Branch[0],Float.NaN,Float.NaN,20);
     }
 
-    @Test public void movingBallHidesProjectionUntilSeveralStillFrames() {
+    @Test public void movingCueDoesNotHideProjectionWhenGuideIsVisible() {
         int w=120,h=80; BallMotionGate gate=new BallMotionGate();
         int[] first=felt(w,h); circle(first,w,h,30,40,5,0xffffffff);
         assertFalse(gate.update(first,w,h,geometry()));
         int[] moved=felt(w,h); circle(moved,w,h,50,40,5,0xffffffff);
-        assertTrue("a ball moving along the aiming direction should be detected",gate.update(moved,w,h,geometry()));
-        for(int i=0;i<6;i++) assertTrue("projection remains hidden while waiting for a stable table",gate.update(moved,w,h,geometry()));
-        assertFalse("projection may return only after the stable-frame window",gate.update(moved,w,h,geometry()));
+        assertFalse("changes during aiming must not suppress the detected guide",gate.update(moved,w,h,geometry()));
+    }
+
+    @Test public void movingBallHidesProjectionWhenGuideDisappears() {
+        int w=120,h=80; BallMotionGate gate=new BallMotionGate();
+        int[] first=felt(w,h); circle(first,w,h,30,40,5,0xffffffff);
+        gate.update(first,w,h,geometry());
+        int[] moved=felt(w,h); circle(moved,w,h,50,40,5,0xffffffff);
+        assertTrue("motion without native guide must hide projection",gate.update(moved,w,h,null));
+        for(int i=0;i<6;i++) assertTrue("wait for stable table",gate.update(moved,w,h,null));
+        assertFalse("release after seven still frames",gate.update(moved,w,h,null));
+        assertFalse("a returning native guide is usable after stable reset",gate.update(first,w,h,geometry()));
     }
 }

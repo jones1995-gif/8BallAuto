@@ -14,9 +14,22 @@ public final class BallMotionGate {
     private AimDetector.Result lastGeometry;
     private boolean moving;
     private int stillFrames;
+    private int consecutiveGuideFrames;
 
     public synchronized boolean update(int[] pixels, int w, int h, AimDetector.Result current) {
         if (pixels == null || w < 2 || h < 2 || pixels.length < w*h) return moving;
+        // A native aiming line is strong evidence that the player is aiming,
+        // not shooting. In 0.6, moving the cue looked like ball motion, which
+        // latched this gate on and hid every projection indefinitely.
+        if(current!=null) {
+            consecutiveGuideFrames++;
+            lastGeometry=current;
+            previousPixels=pixels.clone();
+            previousWidth=w;previousHeight=h;
+            if(consecutiveGuideFrames>=2) { moving=false; stillFrames=0; }
+            return moving;
+        }
+        consecutiveGuideFrames=0;
         AimDetector.Result priorGeometry = lastGeometry;
         if (current != null) lastGeometry = current;
         AimDetector.Result geometry = current != null ? current : lastGeometry;
@@ -63,7 +76,7 @@ public final class BallMotionGate {
 
     public synchronized void reset() {
         previousPixels=null; previousWidth=0; previousHeight=0;
-        lastGeometry=null; moving=false; stillFrames=0;
+        lastGeometry=null; moving=false; stillFrames=0; consecutiveGuideFrames=0;
     }
 
     public synchronized boolean isMoving() { return moving; }
