@@ -27,8 +27,8 @@ public final class AimStabilizer {
             return now;
         }
         if (sameLine(last, now)) {
-            // Smooth only modest changes. Updating continuously lets the line track cue rotation.
-            last = mix(last, now, .68f);
+            // Strongly favour the newest frame so the projection follows the cue with little lag.
+            last = mix(last, now, .86f);
             lastSeenMs = timestampMs;
             challenger = null; challengerCount = 0;
             return last;
@@ -36,7 +36,7 @@ public final class AimStabilizer {
         // A sudden different line must be seen consistently for more than one image.
         if (challenger != null && sameLine(challenger, now)) {
             challengerCount++;
-            challenger = mix(challenger, now, .68f);
+            challenger = mix(challenger, now, .86f);
         } else {
             challenger = now; challengerCount = 1;
         }
@@ -65,7 +65,11 @@ public final class AimStabilizer {
                 lerp(a.left, b.left, weight), lerp(a.top, b.top, weight),
                 lerp(a.right, b.right, weight), lerp(a.bottom, b.bottom, weight),
                 lerp(a.startX, b.startX, weight), lerp(a.startY, b.startY, weight),
-                x, y, b.votes, b.branches, b.collisionX, b.collisionY);
+                x, y, b.votes, b.branches, b.collisionX, b.collisionY, b.guideLength);
+    }
+
+    public synchronized void reset() {
+        last=null; challenger=null; challengerCount=0; lastSeenMs=0;
     }
 
     private static float lerp(float a, float b, float w) { return a + (b - a) * w; }

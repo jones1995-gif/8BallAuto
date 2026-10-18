@@ -90,4 +90,40 @@ public class AimDetectorTest {
         setWhite(p,w,h,170,110,3);
         assertNull(AimDetector.detect(p,w,h));
     }
+    @Test public void darkNeutralFeltUsesFallbackTableBounds() {
+        int w=360,h=210;
+        int[] p=new int[w*h];
+        java.util.Arrays.fill(p,0xff25282c);
+        for (int y=95;y<185;y++) for (int x=65;x<300;x++) p[y*w+x]=0xff1c1f23;
+        drawLine(p,w,h,95,110,255,150);
+        setWhite(p,w,h,95,110,3);
+        AimDetector.Result result=AimDetector.detect(p,w,h);
+        assertNotNull("dark/neutral table themes should still be detected",result);
+        assertTrue(result.right-result.left>w*.5f);
+    }
+
+    @Test public void masksOnlyTheGeneratedExtensionNotTheNativeGuide() {
+        int w=120,h=80;
+        int[] p=new int[w*h]; java.util.Arrays.fill(p,0xff204060);
+        for(int x=30;x<=55;x++) p[40*w+x]=0xffffffff;
+        AimDetector.Result r=new AimDetector.Result(10,10,110,70,30,40,1,0,20,
+                new AimDetector.Branch[0],Float.NaN,Float.NaN,25);
+        AimDetector.maskOverlayExtensions(p,w,h,r);
+        assertEquals("native guide remains intact",0xffffffff,p[40*w+45]);
+        assertEquals("our extension is removed from the next detector frame",0xff000000,p[40*w+70]);
+    }
+
+    @Test public void recognizesStraightOnTargetLineThatIsCollinearWithIncomingGuide() {
+        int w=360,h=210;
+        int[] p=redTable(w,h);
+        drawLine(p,w,h,70,72,260,138);
+        setWhite(p,w,h,70,72,2);
+        drawRing(p,w,h,145,98,4);
+        AimDetector.Result result=AimDetector.detect(p,w,h);
+        assertNotNull(result);
+        assertTrue("contact marker on a straight-on shot should be detected",result.hasCollision);
+        assertTrue("the target-ball path should be kept even when collinear",result.branches.length>=1);
+        assertTrue(Math.abs(result.branches[0].dx-result.dx)<.15f);
+    }
+
 }

@@ -1,34 +1,34 @@
-# Pool Aim Auto Beta 0.5 — projeção de linhas após colisão
+# Pool Aim Auto Beta 0.6 — linhas brancas, colisões e pausa durante a tacada
 
-Esta versão foi ajustada para o comportamento descrito no vídeo: prolongar a mira nativa e, quando o jogo mostra o marcador de contato e as linhas de colisão, detectar cada direção separadamente.
+Esta versão evolui a 0.5 com foco nos problemas relatados no teste real: projeções de tabela desalinhadas, linhas de colisão não detectadas, linhas grossas/coloridas e projeção permanecendo visível durante o movimento das bolas.
 
-## Alterações da versão 0.5
+## O que mudou na 0.6
 
-- O detector ainda procura a bola branca como origem da mira, mas agora dá mais peso a uma linha contínua que sai de uma bola redonda, reduzindo falsos positivos em letras, textos e detalhes da mesa.
-- A captura agora é analisada em largura de 480 px, para preservar segmentos curtos que se perdiam na redução para 360 px.
-- Adicionado um detector Hough leve para encontrar segmentos claros adicionais dentro da mesa.
-- Uma linha adicional só é tratada como trajetória pós-colisão quando cruza a mira de entrada junto a um marcador circular claro, o que ajuda a descartar linhas aleatórias e textos.
-- Quando são detectadas linhas de colisão, a projeção principal termina no ponto de contato e as direções secundárias são estendidas separadamente até as bordas, com rebotes geométricos.
-- Projeções usam cores verde, magenta e azul para serem distintas da linha branca do jogo e reduzir a chance de o detector reconhecer o próprio desenho.
-- A bolinha preta 8 permanece como controle flutuante para abrir/minimizar o menu.
-- O painel informa quando detecta a mira e quantas trajetórias pós-colisão encontrou.
-- A camada de desenho continua marcada como `NOT_TOUCHABLE`, para deixar os toques passarem ao jogo, sujeita às regras de sobreposição do Android.
+- **Linhas projetadas brancas e finas**: o overlay desenha branco nítido, com traço próximo de 1 px. O desenho começa depois do trecho que já está visível no jogo, evitando duplicar a linha nativa.
+- **Duas saídas após a colisão**: o detector procura os dois ramos que saem do marcador de contato. Também trata o caso de tacada quase reta, em que a linha da bola-alvo pode ficar praticamente colinear com a linha de entrada.
+- **Extensões refletidas nas tabelas**: calcula até três segmentos de rebote e interrompe a trajetória quando ela entra na região aproximada de uma caçapa, em vez de rebater em toda abertura como se fosse trilho sólido.
+- **Menos auto-detecção**: antes de analisar o próximo quadro, remove da cópia de análise apenas as extensões que o próprio overlay desenhou no quadro anterior. A linha nativa curta do jogo é preservada.
+- **Ocultar durante movimento**: compara quadros consecutivos na área da mesa, desconsiderando a mira e as projeções conhecidas. Se detecta movimento das bolas, esconde as projeções e só as libera depois de sete quadros estáveis consecutivos (aproximadamente 0,8 s a 120 ms por quadro). Se a linha nativa desaparece, a projeção antiga também some imediatamente.
+- **Acompanhamento mais rápido**: o estabilizador dá mais peso à direção atual para reduzir o atraso quando o taco se move.
+- **Mesas escuras/neutras**: há uma área de mesa aproximada de fallback quando o feltro não tem cor saturada suficiente para a detecção por matiz.
+- **Bolinha 8 flutuante e toques**: mantém o ícone de bola 8 como controle de abrir/minimizar. A camada de desenho é `NOT_TOUCHABLE`; sua opacidade fica abaixo de 0,8 para reduzir o risco de bloquear toques em Android 12+, mas o comportamento deve ser conferido no aparelho.
 
-## Limitações importantes
+## Limitações que continuam importantes
 
-- A detecção continua experimental e depende de o jogo desenhar linhas claras e um marcador de contato reconhecível. Resolução, cores, compressão, animações, tema da mesa e brilho podem afetar os resultados.
-- O detector segue linhas visíveis; não calcula sozinho a física completa de uma colisão se o jogo não exibir as linhas correspondentes.
-- Os rebotes são estimativas geométricas retangulares. Não modelam com precisão os recortes das caçapas, o atrito, a força, o efeito ou a física interna do jogo.
-- Os testes locais verificam o detector Java com imagens sintéticas. Eles não substituem a compilação Android nem o teste no aparelho. O APK deve ser gerado pelo GitHub Actions.
+- A detecção é visual e experimental. O jogo pode mudar a cor/forma das guias conforme tema, brilho, resolução ou atualização.
+- O detector só consegue prolongar linhas que consegue identificar na captura. Se o jogo não desenhar claramente um dos ramos de colisão, a ferramenta pode encontrar apenas um deles ou nenhum.
+- Os rebotes são aproximações geométricas. As caçapas são tratadas como aberturas aproximadas; atrito, força, efeito e física interna do jogo não são simulados com precisão.
+- A pausa de movimento usa diferenças de imagem na mesa e pode precisar de ajuste fino para o modelo/resolução do seu celular.
+- Testes Java locais cobrem imagens sintéticas, detecção de colisão, máscaras e pausa por movimento. Eles não substituem compilar o app Android na nuvem e testar no aparelho.
 
-## Gerar o APK pelo GitHub Actions
+## Gerar o APK pelo GitHub Actions (Windows Server 2012 R2)
 
-1. Extraia o ZIP no computador.
-2. No repositório GitHub, use **Add file → Upload files** e envie o conteúdo da pasta extraída, mantendo os caminhos e substituindo os arquivos de mesmo nome.
+1. Baixe e extraia o ZIP.
+2. No repositório GitHub `8Ball`, use **Add file → Upload files** e envie o conteúdo extraído, mantendo os caminhos e substituindo arquivos com o mesmo nome.
 3. Em `.github/workflows/`, mantenha apenas `blank.yml` para evitar compilações duplicadas.
-4. Faça **Commit changes**.
-5. Abra **Actions** e aguarde **Build Pool Aim Auto Beta APK**.
-6. Na execução concluída, abra **Summary → Artifacts** e baixe `pool-aim-auto-v05-debug-apk`.
-7. Extraia o ZIP do artefato e instale `app-debug.apk` no Android.
+4. Clique em **Commit changes**.
+5. Abra **Actions** e aguarde **Build Pool Aim Auto Beta 0.6 APK**.
+6. Na execução concluída, abra **Summary → Artifacts** e baixe `pool-aim-auto-v06-debug-apk`.
+7. Extraia o ZIP do artefato e instale `app-debug.apk` no Android. Se a assinatura de depuração for diferente da versão anterior, desinstale a anterior antes de instalar a 0.6.
 
-O workflow usa Java 17, Android SDK 35 e Gradle 8.9. Não é necessário instalar Android Studio no Windows Server para compilar na nuvem.
+O workflow usa Java 17, Android SDK 35 e Gradle 8.9 na nuvem. Não é necessário instalar Android Studio no Windows Server.

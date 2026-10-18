@@ -54,7 +54,10 @@ public class AutoOverlayService extends Service {
     private long lastFrame=0;
     private boolean rails=true;
     private boolean hasDetection=false;
-    private final AimStabilizer stabilizer = new AimStabilizer(350);
+    private final AimStabilizer stabilizer = new AimStabilizer(0);
+    private final BallMotionGate motionGate = new BallMotionGate();
+    // Worker-thread-owned: used to subtract only our previous extension from capture frames.
+    private AimDetector.Result lastDisplayedGeometry;
     private TextView status;
     private boolean isStopping=false;
     private int dp(float n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
@@ -76,6 +79,7 @@ public class AutoOverlayService extends Service {
         else startForeground(17,note);
         if(bubble==null)buildOverlay();
         if(projection!=null)closeProjection();
+        motionGate.reset();stabilizer.reset();lastDisplayedGeometry=null;
         int result=intent.getIntExtra("resultCode",0);
         Intent data;
         if(Build.VERSION.SDK_INT>=33)data=intent.getParcelableExtra("resultData",Intent.class);
@@ -135,13 +139,34 @@ public class AutoOverlayService extends Service {
             int fw=480,fh=Math.max(120,Math.round(480f*img.getHeight()/img.getWidth()));
             Bitmap small=Bitmap.createScaledBitmap(bmp,fw,fh,false);int[] rgb=new int[fw*fh];
             small.getPixels(rgb,0,fw,0,0,fw,fh);small.recycle();bmp.recycle();
-            AimDetector.Result res=stabilizer.update(AimDetector.detect(rgb,fw,fh),now);
+            // White extensions are visible in some screen-capture pipelines. Mask only
+            // the extension we drew last frame, leaving the game's native guide intact.
+            int[] detectorPixels=rgb.clone();
+            AimDetector.maskOverlayExtensions(detectorPixels,fw,fh,lastDisplayedGeometry);
+            AimDetector.Result raw=AimDetector.detect(detectorPixels,fw,fh);
+            boolean ballsMoving=motionGate.update(rgb,fw,fh,raw);
+            AimDetector.Result res=null;
+            if(ballsMoving) {
+                stabilizer.reset();
+                lastDisplayedGeometry=null;
+            } else if(raw!=null) {
+                res=stabilizer.update(raw,now);
+                lastDisplayedGeometry=res;
+            } else {
+                // Do not leave a stale projection visible after the native guide disappears.
+                stabilizer.reset();
+                lastDisplayedGeometry=null;
+            }
+            final boolean movingNow=ballsMoving;
+            final AimDetector.Result shown=res;
             main.post(()->{
-                if(drawing!=null)drawing.update(res,fw,fh);
-                hasDetection=res!=null;
-                if(res==null) statusText("Procurando a mira do jogo...");
-                else if(res.hasCollision) statusText("Mira encontrada • "+res.branches.length+" trajetória(s) após colisão");
-                else statusText("Mira encontrada • aguardando linhas de colisão");
+                if(drawing!=null)drawing.update(shown,fw,fh);
+                hasDetection=shown!=null;
+                if(movingNow) statusText("Bolas em movimento • linhas ocultas");
+                else if(shown==null) statusText("Procurando a mira do jogo...");
+                else if(shown.hasCollision && shown.branches.length>0) statusText("Colisão detectada • "+shown.branches.length+" saída(s)");
+                else if(shown.hasCollision) statusText("Contato detectado • procurando linhas de saída");
+                else statusText("Mira acompanhada • aguardando colisão");
             });
         }catch(Exception ex){main.post(()->statusText("Falha ao ler imagem"));}
         finally{if(img!=null)img.close();}
@@ -153,7 +178,8 @@ public class AutoOverlayService extends Service {
         drawParams=new WindowManager.LayoutParams(-1,-1,type,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);
-        drawParams.gravity=Gravity.TOP|Gravity.START;drawParams.alpha=.45f;
+        // Keep below Android's usual obscuring-opacity threshold so touches can pass through.
+        drawParams.gravity=Gravity.TOP|Gravity.START;drawParams.alpha=.74f;
         windowManager.addView(drawing,drawParams);
         bubble=new ImageView(this);bubble.setImageResource(R.drawable.bola_8);
         bubble.setBackgroundColor(Color.TRANSPARENT);bubble.setPadding(dp(3),dp(3),dp(3),dp(3));
@@ -212,6 +238,7 @@ public class AutoOverlayService extends Service {
     }
     @Override public void onDestroy(){super.onDestroy();if(isStopping)return;isStopping=true;
         try{closeProjection();}catch(Exception ignored){}
+        motionGate.reset();stabilizer.reset();lastDisplayedGeometry=null;
         if(menu!=null){windowManager.removeView(menu);menu=null;}
         if(bubble!=null){windowManager.removeView(bubble);bubble=null;}
         if(drawing!=null){windowManager.removeView(drawing);drawing=null;}

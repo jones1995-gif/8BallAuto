@@ -9,30 +9,39 @@ package br.com.poolaim.overlay;
 public final class AimDetector {
     public static final class Branch {
         public final float x, y, dx, dy;
+        /** Approximate visible native branch length, measured from the collision marker. */
         public final int length;
         Branch(float x, float y, float dx, float dy, int length) {
-            this.x=x; this.y=y; this.dx=dx; this.dy=dy; this.length=length;
+            this.x=x; this.y=y; this.dx=dx; this.dy=dy; this.length=Math.max(0,length);
         }
     }
 
     public static final class Result {
         public final float left, top, right, bottom, startX, startY, dx, dy;
         public final float collisionX, collisionY;
+        /** Length of the native, visible cue guide before the overlay extension begins. */
+        public final float guideLength;
         public final int votes;
         public final Branch[] branches;
         public final boolean hasCollision;
 
         Result(float l, float t, float r, float b, float x, float y,
                float dx, float dy, int votes) {
-            this(l,t,r,b,x,y,dx,dy,votes,new Branch[0],Float.NaN,Float.NaN);
+            this(l,t,r,b,x,y,dx,dy,votes,new Branch[0],Float.NaN,Float.NaN,0f);
         }
         Result(float l, float t, float r, float b, float x, float y,
                float dx, float dy, int votes, Branch[] branches, float collisionX, float collisionY) {
+            this(l,t,r,b,x,y,dx,dy,votes,branches,collisionX,collisionY,0f);
+        }
+        Result(float l, float t, float r, float b, float x, float y,
+               float dx, float dy, int votes, Branch[] branches, float collisionX, float collisionY,
+               float guideLength) {
             left=l; top=t; right=r; bottom=b; startX=x; startY=y;
             this.dx=dx; this.dy=dy; this.votes=votes;
             this.branches=branches==null?new Branch[0]:branches;
             this.collisionX=collisionX; this.collisionY=collisionY;
-            this.hasCollision=this.branches.length>0 && Float.isFinite(collisionX) && Float.isFinite(collisionY);
+            this.guideLength=Math.max(0f,guideLength);
+            this.hasCollision=Float.isFinite(collisionX) && Float.isFinite(collisionY);
         }
     }
 
@@ -45,9 +54,10 @@ public final class AimDetector {
         final float dx, dy;
         final int support, longest;
         final float alternativeScore;
-        Ray(float dx, float dy, int support, int longest, float alternativeScore) {
+        final float visibleLength;
+        Ray(float dx, float dy, int support, int longest, float alternativeScore, float visibleLength) {
             this.dx=dx; this.dy=dy; this.support=support; this.longest=longest;
-            this.alternativeScore=alternativeScore;
+            this.alternativeScore=alternativeScore; this.visibleLength=Math.max(0f,visibleLength);
         }
         float score() { return support + longest * 0.7f; }
     }
@@ -112,7 +122,7 @@ public final class AimDetector {
             int n=histogram[(k+35)%36]+histogram[k]+histogram[(k+1)%36];
             if (n>best) { best=n; wanted=k; }
         }
-        if (best<45) return null;
+        if (best<45) return fallbackTable(w,h);
 
         int xLo=w*5/100, xHi=w*95/100, yLo=h*12/100, yHi=h*94/100;
         int firstY=h, lastY=0, firstX=w, lastX=0;
@@ -122,18 +132,26 @@ public final class AimDetector {
             for (int x=xLo;x<xHi;x+=3) if (felt(pixels[y*w+x],wanted)) count++;
             if (count>rowThreshold) { firstY=Math.min(firstY,y); lastY=Math.max(lastY,y); }
         }
-        if (lastY-firstY<h*.20f) return null;
+        if (lastY-firstY<h*.20f) return fallbackTable(w,h);
         int colThreshold=(int)(((lastY-firstY)/3)*.35f);
         for (int x=xLo;x<xHi;x+=2) {
             int count=0;
             for (int y=firstY;y<=lastY;y+=3) if (felt(pixels[y*w+x],wanted)) count++;
             if (count>colThreshold) { firstX=Math.min(firstX,x); lastX=Math.max(lastX,x); }
         }
-        if (lastX-firstX<w*.35f) return null;
+        if (lastX-firstX<w*.35f) return fallbackTable(w,h);
         int l=Math.max(0,firstX+3), r=Math.min(w-1,lastX-3);
         int t=Math.max(0,firstY+3), b=Math.min(h-1,lastY-3);
-        if (r-l<w*.30f || b-t<h*.18f) return null;
+        if (r-l<w*.30f || b-t<h*.18f) return fallbackTable(w,h);
         return new Bounds(l,t,r,b);
+    }
+
+    /** Fallback for dark/neutral felt themes where hue-based felt detection fails. */
+    private static Bounds fallbackTable(int w,int h) {
+        int l=Math.round(w*.13f), r=Math.round(w*.87f);
+        int t=Math.round(h*.20f), b=Math.round(h*.90f);
+        if(r-l<w*.30f || b-t<h*.18f) return null;
+        return new Bounds(Math.max(0,l),Math.max(0,t),Math.min(w-1,r),Math.min(h-1,b));
     }
 
     private static int countBallWhite(int[] pixels, int w, int h, int cx, int cy, int radius) {
@@ -189,6 +207,7 @@ public final class AimDetector {
 
     private static Ray findRay(int[] pixels, int w, int h, Bounds b, int x, int y) {
         float[] scores=new float[360]; int[] supports=new int[360],longests=new int[360];
+        float[] visibleEnds=new float[360];
         java.util.Arrays.fill(scores,-1f);
         int bestDegree=-1; float bestScore=-1f;
         for (int degrees=0; degrees<360; degrees++) {
@@ -202,29 +221,35 @@ public final class AimDetector {
             float maxDistance=Math.min(tx,ty);
             if (!Float.isFinite(maxDistance) || maxDistance<8) continue;
             int support=0, run=0, gaps=0, longest=0;
-            for (float d=4; d<maxDistance; d+=1f) {
+            float currentEnd=0f, longestEnd=0f;
+            for (float d=3; d<maxDistance; d+=1f) {
                 boolean hit=guideAt(pixels,w,h,x+dx*d,y+dy*d);
-                if (hit) { support++; run++; gaps=0; }
-                else { gaps++; if (gaps>1) { if(run>longest)longest=run; run=0; gaps=0; } }
+                if (hit) {
+                    support++; run++; gaps=0; currentEnd=d;
+                    if(run>longest){longest=run;longestEnd=currentEnd;}
+                } else {
+                    gaps++;
+                    if(gaps>2){run=0;gaps=0;}
+                }
             }
-            if (run>longest) longest=run;
             float score=support+longest*.7f;
             scores[degrees]=score; supports[degrees]=support; longests[degrees]=longest;
+            visibleEnds[degrees]=longestEnd;
             if(score>bestScore){bestScore=score;bestDegree=degrees;}
         }
         if(bestDegree<0)return null;
         float bestDx=(float)Math.cos(Math.toRadians(bestDegree));
         float bestDy=(float)Math.sin(Math.toRadians(bestDegree));
         float alternative=0f;
-        // A target/contact marker often has several guide rays leaving it.
-        // Penalize those candidates so the filled cue ball remains the origin.
         for(int degree=0;degree<360;degree++) {
             if(scores[degree]<0)continue;
             float dx=(float)Math.cos(Math.toRadians(degree)),dy=(float)Math.sin(Math.toRadians(degree));
-            if(Math.abs(dx*bestDx+dy*bestDy)>.94f)continue; // same line in either direction
+            if(Math.abs(dx*bestDx+dy*bestDy)>.94f)continue;
             if(scores[degree]>alternative)alternative=scores[degree];
         }
-        return new Ray(bestDx,bestDy,supports[bestDegree],longests[bestDegree],alternative);
+        // Leave a small margin so the overlay begins just after the native guide.
+        float visibleLength=Math.max(0f,visibleEnds[bestDegree]-1.5f);
+        return new Ray(bestDx,bestDy,supports[bestDegree],longests[bestDegree],alternative,visibleLength);
     }
 
     private static final class Segment {
@@ -262,7 +287,7 @@ public final class AimDetector {
             int rho=(int)Math.round(xs[i]*cos[a]+ys[i]*sin[a])+maxRho;
             if(rho>=0&&rho<rhoCount) acc[a][rho]++;
         }
-        int minVotes=Math.max(6,(int)Math.round(Math.min(b.right-b.left,b.bottom-b.top)*.045f));
+        int minVotes=Math.max(5,(int)Math.round(Math.min(b.right-b.left,b.bottom-b.top)*.035f));
         java.util.ArrayList<Segment> segments=new java.util.ArrayList<>();
         for(int peak=0;peak<22;peak++) {
             int best=0,ba=-1,br=-1;
@@ -282,7 +307,7 @@ public final class AimDetector {
                 if(i==count || ts[i]-ts[i-1]>3.5f) {
                     if(i>begin) {
                         float len=ts[i-1]-ts[begin];
-                        if(len>=8f && i-begin>=6) {
+                        if(len>=6f && i-begin>=4) {
                             // Reconstruct endpoints on the detected infinite line.
                             float x1=(float)(rho*c-ts[begin]*sn), y1=(float)(rho*sn+ts[begin]*c);
                             float x2=(float)(rho*c-ts[i-1]*sn), y2=(float)(rho*sn+ts[i-1]*c);
@@ -318,7 +343,7 @@ public final class AimDetector {
     }
 
     /** Require the branch junction to have the small bright contact ring used by the game. */
-    private static boolean hasCollisionMarker(int[] pixels,int w,int h,float cx,float cy,Ray primary) {
+    private static int collisionMarkerScore(int[] pixels,int w,int h,float cx,float cy,Ray primary) {
         boolean[] sectors=new boolean[8]; int count=0;
         for(int y=(int)cy-5;y<=(int)cy+5;y++) {
             if(y<0||y>=h) continue;
@@ -334,7 +359,11 @@ public final class AimDetector {
             }
         }
         int coverage=0;for(boolean occupied:sectors)if(occupied)coverage++;
-        return count>=5 && coverage>=4;
+        return count>=4 && coverage>=3 ? count+coverage*5 : 0;
+    }
+
+    private static boolean hasCollisionMarker(int[] pixels,int w,int h,float cx,float cy,Ray primary) {
+        return collisionMarkerScore(pixels,w,h,cx,cy,primary)>0;
     }
 
     /**
@@ -345,39 +374,103 @@ public final class AimDetector {
         Segment[] segments=findBrightSegments(pixels,w,h,table,cueX,cueY);
         java.util.ArrayList<Branch> found=new java.util.ArrayList<>();
         float collisionX=Float.NaN,collisionY=Float.NaN;
+        float maxT=(float)Math.hypot(table.right-table.left,table.bottom-table.top);
         for(Segment s:segments) {
             float sx=s.x2-s.x1, sy=s.y2-s.y1;
-            float sl=(float)Math.hypot(sx,sy); if(sl<8f) continue;
-            float dot=Math.abs((sx*primary.dx+sy*primary.dy)/sl);
-            if(dot>.94f) continue; // the cue-to-target line itself, not a branch
+            float sl=(float)Math.hypot(sx,sy); if(sl<6f) continue;
+            // The incoming line itself touches the cue ball; outgoing lines do not.
+            if(pointSegmentDistance(cueX,cueY,s.x1,s.y1,s.x2,s.y2)<8f) continue;
             float qx=s.x1-cueX,qy=s.y1-cueY;
             float den=primary.dx*sy-primary.dy*sx;
-            if(Math.abs(den)<.001f) continue;
-            float t=(qx*sy-qy*sx)/den;
-            float u=(qx*primary.dy-qy*primary.dx)/den;
-            if(t<10f || t>Math.hypot(table.right-table.left,table.bottom-table.top) || u<-.10f || u>1.10f) continue;
-            float ix=cueX+primary.dx*t, iy=cueY+primary.dy*t;
+            float ix,iy,t;
+            if(Math.abs(den)<.025f) {
+                // A straight-on hit makes the target-ball line collinear with
+                // the incoming guide. Do not discard it just because it is parallel.
+                float perp=Math.abs(qx*primary.dy-qy*primary.dx);
+                if(perp>3.5f) continue;
+                float t1=(s.x1-cueX)*primary.dx+(s.y1-cueY)*primary.dy;
+                float t2=(s.x2-cueX)*primary.dx+(s.y2-cueY)*primary.dy;
+                t=Math.min(t1,t2);
+                if(t<10f||t>maxT) continue;
+                ix=cueX+primary.dx*t; iy=cueY+primary.dy*t;
+                if(pointSegmentDistance(ix,iy,s.x1,s.y1,s.x2,s.y2)>9.0f) continue;
+            } else {
+                t=(qx*sy-qy*sx)/den;
+                float u=(qx*primary.dy-qy*primary.dx)/den;
+                if(t<10f||t>maxT||u<-.10f||u>1.10f) continue;
+                ix=cueX+primary.dx*t; iy=cueY+primary.dy*t;
+                if(pointSegmentDistance(ix,iy,s.x1,s.y1,s.x2,s.y2)>9.0f) continue;
+            }
             if(ix<table.left+2||ix>table.right-2||iy<table.top+2||iy>table.bottom-2) continue;
             if(!hasCollisionMarker(pixels,w,h,ix,iy,primary)) continue;
             float d1=(float)Math.hypot(s.x1-ix,s.y1-iy), d2=(float)Math.hypot(s.x2-ix,s.y2-iy);
             if(Math.min(d1,d2)>9.0f) continue;
             float fx=d1<d2?s.x2:s.x1, fy=d1<d2?s.y2:s.y1;
             float vx=fx-ix,vy=fy-iy,vl=(float)Math.hypot(vx,vy);
-            if(vl<7.0f) continue;
-            Branch candidate=new Branch(ix,iy,vx/vl,vy/vl,s.length);
+            if(vl<6.0f) continue;
+            Branch candidate=new Branch(ix,iy,vx/vl,vy/vl,Math.round(vl));
             boolean duplicate=false;
             for(Branch old:found) {
                 float bd=Math.abs(old.dx*candidate.dx+old.dy*candidate.dy);
-                if(Math.hypot(old.x-candidate.x,old.y-candidate.y)<8f && bd>.90f) {duplicate=true;break;}
+                if(Math.hypot(old.x-candidate.x,old.y-candidate.y)<10f && bd>.86f) {duplicate=true;break;}
             }
             if(!duplicate) {
                 found.add(candidate);
-                if(found.size()==1){collisionX=ix;collisionY=iy;}
+                if(!Float.isFinite(collisionX)){collisionX=ix;collisionY=iy;}
             }
         }
-        // Sort branches by proximity to the first detected collision point, then cap noise.
-        if(found.size()>3) found.subList(3,found.size()).clear();
+        // Keep at most two outgoing branches, one for the cue ball and one for the target ball.
+        found.sort((a,b)->Integer.compare(b.length,a.length));
+        if(found.size()>2) found.subList(2,found.size()).clear();
         return new BranchSet(found.toArray(new Branch[0]),collisionX,collisionY);
+    }
+
+    private static float pointSegmentDistance(float px,float py,float x1,float y1,float x2,float y2) {
+        float vx=x2-x1,vy=y2-y1,den=vx*vx+vy*vy;
+        if(den<.001f) return (float)Math.hypot(px-x1,py-y1);
+        float t=((px-x1)*vx+(py-y1)*vy)/den;
+        t=Math.max(0f,Math.min(1f,t));
+        return (float)Math.hypot(px-(x1+t*vx),py-(y1+t*vy));
+    }
+
+    private static BranchSet includeCollinearTargetPath(int[] pixels,int w,int h,Bounds table,
+                                                          int cueX,int cueY,Ray primary,BranchSet found) {
+        float maxT=(float)Math.hypot(table.right-table.left,table.bottom-table.top);
+        float scanEnd=Math.min(maxT,Math.max(12f,primary.visibleLength+6f));
+        float bestT=Float.NaN; int bestScore=0;
+        for(float d=10f;d<=scanEnd;d+=1f) {
+            float x=cueX+primary.dx*d,y=cueY+primary.dy*d;
+            if(x<table.left+2||x>table.right-2||y<table.top+2||y>table.bottom-2) break;
+            int score=collisionMarkerScore(pixels,w,h,x,y,primary);
+            if(score>bestScore){bestScore=score;bestT=d;}
+        }
+        if(!Float.isFinite(bestT)) return found;
+        float cx=cueX+primary.dx*bestT,cy=cueY+primary.dy*bestT;
+        java.util.ArrayList<Branch> branches=new java.util.ArrayList<>();
+        for(Branch b:found.branches) branches.add(b);
+        boolean hasParallel=false;
+        for(Branch b:branches) if(Math.abs(b.dx*primary.dx+b.dy*primary.dy)>.94f) hasParallel=true;
+        float remaining=primary.visibleLength-bestT;
+        // If the native guide continues beyond the contact ring along the same
+        // direction, that is the target-ball path for a straight-on collision.
+        if(!hasParallel && remaining>=7f && branches.size()<2
+                && guideAt(pixels,w,h,cx+primary.dx*6f,cy+primary.dy*6f)) {
+            branches.add(new Branch(cx,cy,primary.dx,primary.dy,Math.round(remaining)));
+        }
+        if(branches.size()>2) branches.subList(2,branches.size()).clear();
+        float outX=Float.isFinite(found.x)?found.x:cx;
+        float outY=Float.isFinite(found.y)?found.y:cy;
+        if(!Float.isFinite(found.x)) {
+            // Rebase branches found on the same incoming collision point so the
+            // renderer and stabilizer share one collision origin.
+            java.util.ArrayList<Branch> rebased=new java.util.ArrayList<>();
+            for(Branch b:branches) {
+                if(Math.hypot(b.x-cx,b.y-cy)<10f) rebased.add(new Branch(cx,cy,b.dx,b.dy,b.length));
+                else rebased.add(b);
+            }
+            branches=rebased;
+        }
+        return new BranchSet(branches.toArray(new Branch[0]),outX,outY);
     }
 
     /**
@@ -429,8 +522,67 @@ public final class AimDetector {
         }
         if (bestRay==null) return null;
         BranchSet branchSet=findBranches(pixels,w,h,table,bestX,bestY,bestRay);
+        branchSet=includeCollinearTargetPath(pixels,w,h,table,bestX,bestY,bestRay,branchSet);
         return new Result(table.left,table.top,table.right,table.bottom,
                 bestX,bestY,bestRay.dx,bestRay.dy,
-                (int)(bestRay.support+bestRay.longest*.7f),branchSet.branches,branchSet.x,branchSet.y);
+                (int)(bestRay.support+bestRay.longest*.7f),branchSet.branches,branchSet.x,branchSet.y,bestRay.visibleLength);
     }
+
+    /**
+     * Remove only the overlay-generated extension from a captured frame before
+     * detection. The game's original, short white guide is preserved.
+     */
+    public static void maskOverlayExtensions(int[] pixels,int w,int h,Result previous) {
+        if(pixels==null||previous==null||pixels.length<w*h) return;
+        Bounds b=new Bounds(Math.max(0,Math.round(previous.left)),Math.max(0,Math.round(previous.top)),
+                Math.min(w-1,Math.round(previous.right)),Math.min(h-1,Math.round(previous.bottom)));
+        if(previous.hasCollision) {
+            for(Branch branch:previous.branches) {
+                float sx=branch.x+branch.dx*Math.max(0,branch.length);
+                float sy=branch.y+branch.dy*Math.max(0,branch.length);
+                paintRayMask(pixels,w,h,b,sx,sy,branch.dx,branch.dy,3);
+            }
+        } else {
+            float sx=previous.startX+previous.dx*Math.max(0f,previous.guideLength);
+            float sy=previous.startY+previous.dy*Math.max(0f,previous.guideLength);
+            paintRayMask(pixels,w,h,b,sx,sy,previous.dx,previous.dy,3);
+        }
+    }
+
+    /** Mark a narrow path mask for overlay extensions, including geometric rail bounces. */
+    private static void paintRayMask(int[] pixels,int w,int h,Bounds b,float x,float y,float dx,float dy,int segments) {
+        for(int i=0;i<segments;i++) {
+            float tx=Float.POSITIVE_INFINITY,ty=Float.POSITIVE_INFINITY;
+            if(dx>.0001f) tx=(b.right-x)/dx; else if(dx<-.0001f) tx=(b.left-x)/dx;
+            if(dy>.0001f) ty=(b.bottom-y)/dy; else if(dy<-.0001f) ty=(b.top-y)/dy;
+            float dt=Math.min(tx,ty);
+            if(!Float.isFinite(dt)||dt<-.1f) return;
+            float x2=x+dx*Math.max(0,dt),y2=y+dy*Math.max(0,dt);
+            rasterMaskLine(pixels,w,h,x,y,x2,y2,1);
+            boolean bounceX=tx<=ty+.01f,bounceY=ty<=tx+.01f;
+            float width=b.right-b.left,height=b.bottom-b.top;
+            boolean pocket=false;
+            if(bounceY) pocket=x2-b.left<width*.055f || b.right-x2<width*.055f
+                    || Math.abs(x2-(b.left+b.right)/2f)<width*.045f;
+            if(bounceX) pocket=pocket || y2-b.top<height*.10f || b.bottom-y2<height*.10f
+                    || Math.abs(y2-(b.top+b.bottom)/2f)<height*.085f;
+            if(pocket) return;
+            if(bounceX) dx=-dx;
+            if(bounceY) dy=-dy;
+            x=x2+dx*.7f; y=y2+dy*.7f;
+        }
+    }
+
+    private static void rasterMaskLine(int[] pixels,int w,int h,float x1,float y1,float x2,float y2,int radius) {
+        int steps=Math.max(1,(int)Math.ceil(Math.hypot(x2-x1,y2-y1)));
+        for(int i=0;i<=steps;i++) {
+            int x=Math.round(x1+(x2-x1)*i/steps),y=Math.round(y1+(y2-y1)*i/steps);
+            for(int oy=-radius;oy<=radius;oy++) for(int ox=-radius;ox<=radius;ox++) {
+                if(ox*ox+oy*oy>radius*radius+1) continue;
+                int px=x+ox,py=y+oy;
+                if(px>=0&&px<w&&py>=0&&py<h) pixels[py*w+px]=0xff000000;
+            }
+        }
+    }
+
 }
