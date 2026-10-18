@@ -54,6 +54,7 @@ public class AutoOverlayService extends Service {
     private long lastFrame=0;
     private boolean rails=true;
     private boolean hasDetection=false;
+    private final AimStabilizer stabilizer = new AimStabilizer();
     private TextView status;
     private boolean isStopping=false;
     private int dp(float n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
@@ -132,7 +133,7 @@ public class AutoOverlayService extends Service {
             int fw=360,fh=Math.max(100,Math.round(360f*img.getHeight()/img.getWidth()));
             Bitmap small=Bitmap.createScaledBitmap(bmp,fw,fh,false);int[] rgb=new int[fw*fh];
             small.getPixels(rgb,0,fw,0,0,fw,fh);small.recycle();bmp.recycle();
-            AimDetector.Result res=AimDetector.detect(rgb,fw,fh);
+            AimDetector.Result res=stabilizer.update(AimDetector.detect(rgb,fw,fh),now);
             main.post(()->{if(drawing!=null)drawing.update(res,fw,fh);
                 if(hasDetection!=(res!=null)){hasDetection=res!=null;statusText(hasDetection?"Linha encontrada (experimental)":"Procurando linha clara na mesa...");}});
         }catch(Exception ex){main.post(()->statusText("Falha ao ler imagem"));}
@@ -145,7 +146,7 @@ public class AutoOverlayService extends Service {
         drawParams=new WindowManager.LayoutParams(-1,-1,type,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);
-        drawParams.gravity=Gravity.TOP|Gravity.START;drawParams.alpha=.65f;
+        drawParams.gravity=Gravity.TOP|Gravity.START;drawParams.alpha=.80f;
         windowManager.addView(drawing,drawParams);
         bubble=new ImageView(this);bubble.setImageResource(R.drawable.bola_8);
         bubble.setBackgroundColor(Color.TRANSPARENT);bubble.setPadding(dp(3),dp(3),dp(3),dp(3));
