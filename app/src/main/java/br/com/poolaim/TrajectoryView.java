@@ -17,9 +17,9 @@ public class TrajectoryView extends View {
         super(context);
         setBackgroundColor(Color.TRANSPARENT);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(Color.WHITE);
+        paint.setColor(Color.rgb(110, 255, 250));
         paint.setStrokeCap(Paint.Cap.ROUND);
-        // Solid line: no dash animation, glow, circles or endpoints.
+        // Solid cyan line: visually distinct from the native white guide so the detector cannot lock onto its own projection.
         paint.setPathEffect(null);
     }
 

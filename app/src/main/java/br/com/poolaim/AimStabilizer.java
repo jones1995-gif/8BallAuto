@@ -12,7 +12,7 @@ public final class AimStabilizer {
     private long lastSeenMs;
     private final int maxLostMs;
 
-    public AimStabilizer() { this(1600); }
+    public AimStabilizer() { this(350); }
     public AimStabilizer(int maxLostMs) { this.maxLostMs = maxLostMs; }
 
     public synchronized AimDetector.Result update(AimDetector.Result now, long timestampMs) {
@@ -28,7 +28,7 @@ public final class AimStabilizer {
         }
         if (sameLine(last, now)) {
             // Smooth only modest changes. Updating continuously lets the line track cue rotation.
-            last = mix(last, now, .43f);
+            last = mix(last, now, .68f);
             lastSeenMs = timestampMs;
             challenger = null; challengerCount = 0;
             return last;
@@ -36,7 +36,7 @@ public final class AimStabilizer {
         // A sudden different line must be seen consistently for more than one image.
         if (challenger != null && sameLine(challenger, now)) {
             challengerCount++;
-            challenger = mix(challenger, now, .55f);
+            challenger = mix(challenger, now, .68f);
         } else {
             challenger = now; challengerCount = 1;
         }
@@ -52,7 +52,7 @@ public final class AimStabilizer {
         float dot = a.dx * b.dx + a.dy * b.dy;
         float dist = (float) Math.hypot(a.startX - b.startX, a.startY - b.startY);
         float maxDistance = Math.max(18f, (a.right - a.left) * .12f);
-        return dot >= .94f && dist < maxDistance;
+        return dot >= .72f && dist < maxDistance;
     }
 
     private static AimDetector.Result mix(AimDetector.Result a, AimDetector.Result b, float weight) {

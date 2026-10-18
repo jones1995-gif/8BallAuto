@@ -54,7 +54,7 @@ public class AutoOverlayService extends Service {
     private long lastFrame=0;
     private boolean rails=true;
     private boolean hasDetection=false;
-    private final AimStabilizer stabilizer = new AimStabilizer();
+    private final AimStabilizer stabilizer = new AimStabilizer(350);
     private TextView status;
     private boolean isStopping=false;
     private int dp(float n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
@@ -126,7 +126,7 @@ public class AutoOverlayService extends Service {
         Image img=null;
         try{
             img=src.acquireLatestImage();if(img==null)return;
-            long now=android.os.SystemClock.elapsedRealtime(); if(now-lastFrame<650)return;lastFrame=now;
+            long now=android.os.SystemClock.elapsedRealtime(); if(now-lastFrame<120)return;lastFrame=now;
             Image.Plane p=img.getPlanes()[0];ByteBuffer bb=p.getBuffer();bb.rewind();
             Bitmap bmp=Bitmap.createBitmap(p.getRowStride()/p.getPixelStride(),img.getHeight(),Bitmap.Config.ARGB_8888);
             bmp.copyPixelsFromBuffer(bb);
@@ -146,7 +146,7 @@ public class AutoOverlayService extends Service {
         drawParams=new WindowManager.LayoutParams(-1,-1,type,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);
-        drawParams.gravity=Gravity.TOP|Gravity.START;drawParams.alpha=.80f;
+        drawParams.gravity=Gravity.TOP|Gravity.START;drawParams.alpha=.45f;
         windowManager.addView(drawing,drawParams);
         bubble=new ImageView(this);bubble.setImageResource(R.drawable.bola_8);
         bubble.setBackgroundColor(Color.TRANSPARENT);bubble.setPadding(dp(3),dp(3),dp(3),dp(3));
@@ -172,10 +172,10 @@ public class AutoOverlayService extends Service {
             }return true;
         });
     }
-    private void toggleMenu(){if(menu!=null){windowManager.removeView(menu);menu=null;return;}
+    private void toggleMenu(){if(menu!=null){windowManager.removeView(menu);menu=null;status=null;return;}
         menu=new LinearLayout(this);menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(13),dp(10),dp(13),dp(10));menu.setBackgroundColor(0xee111e2b);
-        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(12);status.setText("Buscando linha...");
+        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(12);status.setText(hasDetection?"Linha encontrada (experimental)":"Buscando linha...");
         menu.addView(status);
         TextView railsButton=menuItem("Tabelas: ATIVADAS");
         railsButton.setOnClickListener(v->{rails=!rails;drawing.setShowRails(rails);railsButton.setText(rails?"Tabelas: ATIVADAS":"Tabelas: DESLIGADAS");});
