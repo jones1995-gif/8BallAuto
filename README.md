@@ -1,29 +1,34 @@
-# Pool Aim Auto Beta 0.4 — detecção experimental da mira
+# Pool Aim Auto Beta 0.5 — projeção de linhas após colisão
 
-Esta versão atualiza o projeto Android enviado para corrigir os principais problemas observados no vídeo de teste.
+Esta versão foi ajustada para o comportamento descrito no vídeo: prolongar a mira nativa e, quando o jogo mostra o marcador de contato e as linhas de colisão, detectar cada direção separadamente.
 
-## O que mudou na versão 0.4
+## Alterações da versão 0.5
 
-- O detector agora procura primeiro uma região branca compacta (provável bola branca) e avalia as linhas claras que saem dessa região. Isso reduz a chance de seguir uma linha longa que esteja em outra parte da mesa.
-- A linha projetada é **ciano-clara, contínua e fina**, para diferenciá-la da linha branca original e evitar que o detector reconheça a própria projeção como se fosse a mira do jogo.
-- A captura é analisada com intervalo mínimo de aproximadamente 120 ms, em vez de 650 ms, para acompanhar melhor o movimento do taco.
-- A estabilização aceita mudanças de ângulo mais rapidamente e descarta uma detecção antiga após um intervalo menor.
-- A camada de desenho permanece `NOT_TOUCHABLE` e usa opacidade de janela reduzida para diminuir a possibilidade de bloquear os toques no jogo no Android 12 ou superior.
-- A bolinha 8 continua como botão flutuante: toque para abrir/fechar o menu e arraste para reposicioná-la.
-- O status do menu reflete se uma linha foi encontrada antes de o menu ser aberto.
+- O detector ainda procura a bola branca como origem da mira, mas agora dá mais peso a uma linha contínua que sai de uma bola redonda, reduzindo falsos positivos em letras, textos e detalhes da mesa.
+- A captura agora é analisada em largura de 480 px, para preservar segmentos curtos que se perdiam na redução para 360 px.
+- Adicionado um detector Hough leve para encontrar segmentos claros adicionais dentro da mesa.
+- Uma linha adicional só é tratada como trajetória pós-colisão quando cruza a mira de entrada junto a um marcador circular claro, o que ajuda a descartar linhas aleatórias e textos.
+- Quando são detectadas linhas de colisão, a projeção principal termina no ponto de contato e as direções secundárias são estendidas separadamente até as bordas, com rebotes geométricos.
+- Projeções usam cores verde, magenta e azul para serem distintas da linha branca do jogo e reduzir a chance de o detector reconhecer o próprio desenho.
+- A bolinha preta 8 permanece como controle flutuante para abrir/minimizar o menu.
+- O painel informa quando detecta a mira e quantas trajetórias pós-colisão encontrou.
+- A camada de desenho continua marcada como `NOT_TOUCHABLE`, para deixar os toques passarem ao jogo, sujeita às regras de sobreposição do Android.
 
 ## Limitações importantes
 
-- A detecção é heurística e experimental. Pode falhar dependendo da resolução, cores da mesa, animações, compressão da imagem e aparência da linha original.
-- A projeção geométrica reflete a direção detectada nas bordas da mesa. Ela **não** calcula com precisão colisões entre bolas, força, velocidade, efeito, atrito nem o destino real da bola após uma tacada.
-- O APK desta versão ainda precisa ser compilado pelo GitHub Actions e testado no celular. Os testes locais realizados aqui cobrem o detector Java com imagens sintéticas e quadros do vídeo enviado, mas não substituem o teste do APK no aparelho.
+- A detecção continua experimental e depende de o jogo desenhar linhas claras e um marcador de contato reconhecível. Resolução, cores, compressão, animações, tema da mesa e brilho podem afetar os resultados.
+- O detector segue linhas visíveis; não calcula sozinho a física completa de uma colisão se o jogo não exibir as linhas correspondentes.
+- Os rebotes são estimativas geométricas retangulares. Não modelam com precisão os recortes das caçapas, o atrito, a força, o efeito ou a física interna do jogo.
+- Os testes locais verificam o detector Java com imagens sintéticas. Eles não substituem a compilação Android nem o teste no aparelho. O APK deve ser gerado pelo GitHub Actions.
 
-## Como compilar no GitHub Actions
+## Gerar o APK pelo GitHub Actions
 
-1. Envie os arquivos deste projeto ao repositório, mantendo a estrutura de pastas.
-2. Em `.github/workflows/`, mantenha apenas um workflow de compilação para evitar duas execuções duplicadas. Este projeto usa `blank.yml`, para substituir o workflow simples que você já usou.
-3. Abra **Actions → Build Pool Aim Auto Beta APK** e aguarde a execução.
-4. Na página da execução, abra **Summary → Artifacts** e baixe `pool-aim-auto-v04-debug-apk`.
-5. Extraia o ZIP baixado e instale `app-debug.apk` no Android.
+1. Extraia o ZIP no computador.
+2. No repositório GitHub, use **Add file → Upload files** e envie o conteúdo da pasta extraída, mantendo os caminhos e substituindo os arquivos de mesmo nome.
+3. Em `.github/workflows/`, mantenha apenas `blank.yml` para evitar compilações duplicadas.
+4. Faça **Commit changes**.
+5. Abra **Actions** e aguarde **Build Pool Aim Auto Beta APK**.
+6. Na execução concluída, abra **Summary → Artifacts** e baixe `pool-aim-auto-v05-debug-apk`.
+7. Extraia o ZIP do artefato e instale `app-debug.apk` no Android.
 
 O workflow usa Java 17, Android SDK 35 e Gradle 8.9. Não é necessário instalar Android Studio no Windows Server para compilar na nuvem.

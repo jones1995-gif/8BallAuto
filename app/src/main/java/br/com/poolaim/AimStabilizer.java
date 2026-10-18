@@ -65,7 +65,7 @@ public final class AimStabilizer {
                 lerp(a.left, b.left, weight), lerp(a.top, b.top, weight),
                 lerp(a.right, b.right, weight), lerp(a.bottom, b.bottom, weight),
                 lerp(a.startX, b.startX, weight), lerp(a.startY, b.startY, weight),
-                x, y, b.votes);
+                x, y, b.votes, b.branches, b.collisionX, b.collisionY);
     }
 
     private static float lerp(float a, float b, float w) { return a + (b - a) * w; }

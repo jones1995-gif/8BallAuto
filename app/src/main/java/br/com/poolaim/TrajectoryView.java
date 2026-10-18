@@ -17,9 +17,8 @@ public class TrajectoryView extends View {
         super(context);
         setBackgroundColor(Color.TRANSPARENT);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(Color.rgb(110, 255, 250));
         paint.setStrokeCap(Paint.Cap.ROUND);
-        // Solid cyan line: visually distinct from the native white guide so the detector cannot lock onto its own projection.
+        paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setPathEffect(null);
     }
 
@@ -42,33 +41,54 @@ public class TrajectoryView extends View {
         float sy = getHeight() / (float) frameHeight;
         canvas.save();
         canvas.scale(sx, sy);
-        // 1.5 real screen pixels irrespective of phone resolution.
-        paint.setStrokeWidth(1.5f / Math.max(.001f, (sx + sy) / 2f));
+        paint.setStrokeWidth(1.6f / Math.max(.001f, (sx + sy) / 2f));
+
         float x = result.startX, y = result.startY;
-        float dx = result.dx, dy = result.dy;
-        if (x < result.left || x > result.right ||
-                y < result.top || y > result.bottom) {
+        if (x < result.left || x > result.right || y < result.top || y > result.bottom) {
             canvas.restore();
             return;
         }
-        final int segments = showRails ? 3 : 1;
-        for (int i = 0; i < segments; i++) {
-            float dtX = Float.POSITIVE_INFINITY, dtY = Float.POSITIVE_INFINITY;
-            if (dx > .0001f) dtX = (result.right - x) / dx;
-            else if (dx < -.0001f) dtX = (result.left - x) / dx;
-            if (dy > .0001f) dtY = (result.bottom - y) / dy;
-            else if (dy < -.0001f) dtY = (result.top - y) / dy;
-            float dt = Math.min(dtX, dtY);
-            if (!Float.isFinite(dt) || dt < 0) break;
-            float x2 = x + dx * dt, y2 = y + dy * dt;
-            canvas.drawLine(x, y, x2, y2, paint);
-            boolean bounceX = dtX <= dtY + .01f;
-            boolean bounceY = dtY <= dtX + .01f;
-            if (bounceX) dx = -dx;
-            if (bounceY) dy = -dy;
-            x = x2 + dx * .5f;
-            y = y2 + dy * .5f;
+
+        if (result.hasCollision) {
+            // The native cue-to-object line ends at the collision point. Do not
+            // pretend the cue ball continues straight through the object ball.
+            paint.setColor(Color.rgb(0, 255, 70));
+            canvas.drawLine(x, y, result.collisionX, result.collisionY, paint);
+            for (int i = 0; i < result.branches.length; i++) {
+                AimDetector.Branch branch = result.branches[i];
+                // Separate colors make the two post-collision paths easier to compare.
+                paint.setColor(i == 0 ? Color.rgb(255, 0, 210) : Color.rgb(35, 120, 255));
+                drawReflectedRay(canvas, branch.x, branch.y, branch.dx, branch.dy,
+                        result.left, result.top, result.right, result.bottom,
+                        showRails ? 3 : 1);
+            }
+        } else {
+            paint.setColor(Color.rgb(0, 255, 70));
+            drawReflectedRay(canvas, x, y, result.dx, result.dy,
+                    result.left, result.top, result.right, result.bottom,
+                    showRails ? 3 : 1);
         }
         canvas.restore();
+    }
+
+    private void drawReflectedRay(Canvas canvas, float x, float y, float dx, float dy,
+                                  float left, float top, float right, float bottom, int segments) {
+        for (int i = 0; i < segments; i++) {
+            float tx = Float.POSITIVE_INFINITY, ty = Float.POSITIVE_INFINITY;
+            if (dx > .0001f) tx = (right - x) / dx;
+            else if (dx < -.0001f) tx = (left - x) / dx;
+            if (dy > .0001f) ty = (bottom - y) / dy;
+            else if (dy < -.0001f) ty = (top - y) / dy;
+            float dt = Math.min(tx, ty);
+            if (!Float.isFinite(dt) || dt < 0) return;
+            float x2 = x + dx * dt, y2 = y + dy * dt;
+            canvas.drawLine(x, y, x2, y2, paint);
+            boolean bounceX = tx <= ty + .01f;
+            boolean bounceY = ty <= tx + .01f;
+            if (bounceX) dx = -dx;
+            if (bounceY) dy = -dy;
+            x = x2 + dx * .6f;
+            y = y2 + dy * .6f;
+        }
     }
 }

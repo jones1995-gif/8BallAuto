@@ -130,12 +130,19 @@ public class AutoOverlayService extends Service {
             Image.Plane p=img.getPlanes()[0];ByteBuffer bb=p.getBuffer();bb.rewind();
             Bitmap bmp=Bitmap.createBitmap(p.getRowStride()/p.getPixelStride(),img.getHeight(),Bitmap.Config.ARGB_8888);
             bmp.copyPixelsFromBuffer(bb);
-            int fw=360,fh=Math.max(100,Math.round(360f*img.getHeight()/img.getWidth()));
+            // 480px retains short post-collision guide segments that disappeared
+            // at 360px while keeping CPU use reasonable for live screen analysis.
+            int fw=480,fh=Math.max(120,Math.round(480f*img.getHeight()/img.getWidth()));
             Bitmap small=Bitmap.createScaledBitmap(bmp,fw,fh,false);int[] rgb=new int[fw*fh];
             small.getPixels(rgb,0,fw,0,0,fw,fh);small.recycle();bmp.recycle();
             AimDetector.Result res=stabilizer.update(AimDetector.detect(rgb,fw,fh),now);
-            main.post(()->{if(drawing!=null)drawing.update(res,fw,fh);
-                if(hasDetection!=(res!=null)){hasDetection=res!=null;statusText(hasDetection?"Linha encontrada (experimental)":"Procurando linha clara na mesa...");}});
+            main.post(()->{
+                if(drawing!=null)drawing.update(res,fw,fh);
+                hasDetection=res!=null;
+                if(res==null) statusText("Procurando a mira do jogo...");
+                else if(res.hasCollision) statusText("Mira encontrada • "+res.branches.length+" trajetória(s) após colisão");
+                else statusText("Mira encontrada • aguardando linhas de colisão");
+            });
         }catch(Exception ex){main.post(()->statusText("Falha ao ler imagem"));}
         finally{if(img!=null)img.close();}
     }
@@ -175,7 +182,7 @@ public class AutoOverlayService extends Service {
     private void toggleMenu(){if(menu!=null){windowManager.removeView(menu);menu=null;status=null;return;}
         menu=new LinearLayout(this);menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(13),dp(10),dp(13),dp(10));menu.setBackgroundColor(0xee111e2b);
-        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(12);status.setText(hasDetection?"Linha encontrada (experimental)":"Buscando linha...");
+        status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(12);status.setText(hasDetection?"Mira encontrada":"Procurando a mira do jogo...");
         menu.addView(status);
         TextView railsButton=menuItem("Tabelas: ATIVADAS");
         railsButton.setOnClickListener(v->{rails=!rails;drawing.setShowRails(rails);railsButton.setText(rails?"Tabelas: ATIVADAS":"Tabelas: DESLIGADAS");});
