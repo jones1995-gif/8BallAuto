@@ -1,33 +1,38 @@
-# Pool Aim Auto Beta 0.6.2 (experimental)
+# Pool Aim Auto 0.7 (beta de testes)
 
-Versão baseada no ZIP 0.6.1 fornecido na conversa. Atualizada especificamente para leitura das duas linhas de saída no impacto; a linha do taco e os controles de sobreposição permanecem.
+**Ferramenta independente para Android; não modifica o 8 Ball Pool.**
 
-## Correções nesta versão
+## Mudanças reais em relação à versão 0.6.2
 
-- Substitui a busca global de segmentos brancos por um rastreamento de raios curtos na vizinhança do possível ponto de colisão.
-- Detecta traços de colisão mais curtos/fracos e distingue os dois ramos a partir do mesmo ponto. Exige evidência visual: não calcula trajetórias de saída fictícias quando a tela não mostra os ramos.
-- Filtra pontos claros que sejam só o tecido da mesa, um risco reto ou uma decoração; verifica contraste em relação ao fundo e objeto circular próximo.
-- Adiciona diagnósticos ao menu: **Imagens / guia / impactos / duplos**. Esses contadores ajudam a distinguir se o problema é na detecção ou na projeção.
-- Mantém as projeções brancas finas, a bolinha 8 para minimizar, passagem de toques, projeção das tabelas e a regra de ocultação durante movimento.
+1. Nova estimativa de colisão em `CollisionPhysics.java`: se a imagem permitir reconhecer uma bola-alvo na extremidade da guia nativa, calcula o contato entre dois discos de mesmo raio e estima as direções da bola-alvo e da bola branca. Não depende exclusivamente da detecção de duas linhas pequenas no jogo.
+2. Se as duas linhas nativas forem identificadas **e** concordarem com a bola encontrada, prioriza as linhas lidas da tela. Caso contrário mostra `Colisão estimada` no menu para não confundir uma simulação com leitura real.
+3. Seleção da bola branca aprimorada no `AimDetector`: exige circularidade também na borda, para não preferir letras brancas sobrepostas à mesa.
+4. Filtro de candidatos próximos ao final da guia. Evita falsear colisões com texto, cursor ou elementos de interface. É conservador demais perto das bordas: bolas coladas à tabela podem não ser reconhecidas.
+5. Traçado independente `RailTrace.java`, que calcula rebatidas para o **centro da bola** (com compensação do raio), trata aberturas aproximadas das seis caçapas e impede projetar uma rebatida depois de um buraco.
+6. Correção de alinhamento da captura: descarta colunas extras que o `ImageReader` eventualmente adiciona no `rowStride` antes de reduzir e processar a imagem. É relevante para aparelhos que fornecem imagens com largura interna maior que a da tela.
+7. Mantém a bola 8 flutuante, o modo de captura autorizado, projeção fina branca e ocultação enquanto a guia de mira não está presente / movimento reconhecido.
 
-**Limitações:** A detecção continua experimental. Exemplos desenhados/sintéticos não provam precisão no 8 Ball Pool. Alguns temas de mesa, efeitos de tela e tamanhos do aparelho podem gerar falsos positivos ou perder linhas. Não é previsão física perfeita: força, efeito e atrito alteram o movimento real; reflexos nas tabelas são apenas aproximações geométricas.
+## Limitações conhecidas
 
-## Compilar sem Android Studio
+- É uma **beta experimental**, não foi validada num telefone Android nem contra todas as mesas do jogo. Não há garantia de detectar cada colisão, cada tabela ou cada caçapa.
+- Trajetórias calculadas assumem discos rígidos iguais, impacto ideal sem efeito, e reflexão especular nas tabelas. Força real, atrito, efeito, colisões subsequentes e diferenças entre mesas alteram as trajetórias. A posição final da bola **não** pode ser determinada com exatidão.
+- Guias extremamente apagadas, alvos muito próximos das bordas, iluminação diferente, proporções/telas incomuns e sobreposições podem causar falhas.
+- Não bloqueia nem modifica as proteções do jogo; o uso de qualquer auxiliar deve respeitar as regras do próprio jogo.
 
-1. Extraia o ZIP.
-2. No mesmo repositório GitHub, envie os arquivos extraídos mantendo as pastas da raiz (substitua os equivalentes); não envie o ZIP como arquivo isolado.
-3. Faça Commit changes na branch **main**.
-4. Em Actions abra **Build Pool Aim Auto Beta 0.6.2 APK** e acompanhe a execução mais recente.
-5. Se a execução ficar verde, abra Summary > Artifacts > **pool-aim-auto-v062-debug-apk**, extraia e instale o app-debug.apk.
-6. Se houver conflito de assinatura, desinstale a versão anterior; as configurações locais podem ser perdidas.
+## Verificações executadas
 
-## Teste em jogo e diagnóstico
+- 32 testes de unidade Java locais passaram em 19/10/2026 (incluindo geometria de colisão, reconhecimento de círculos sintéticos, rebatidas, estados de movimento e regressões existentes).
+- Testado offline com 17 capturas do vídeo fornecido pelo usuário (uma por segundo): 6 quadros sem colisão e 11 com bola-alvo reconhecida. A bola branca acompanha a posição da mira nos quadros analisados. Isso verifica o **detector em imagens fixas**, não demonstra que a sobreposição funciona continuamente em um celular.
+- **Não foi possível compilar o APK Android no ambiente local**, porque não há Android SDK ou Gradle e não há rede para instalá-los. O GitHub Actions compilará o APK; a compilação pode revelar outros erros.
 
-- Abra o jogo, inicie captura de **tela inteira**, mire sem tocar manualmente em nenhuma bola.
-- Com a bolinha 8, abra o menu e observe o status ao apontar o taco para uma bola.
-- **Mira detectada:** só reconheceu a linha principal; **Colisão • 1 ou 2 saída(s):** encontrou ramos; **impactos / duplos:** contadores de frames identificados.
-- Se só reconhecer a linha do taco, envie **gravação de tela da 0.6.2 com a mira na bola e o menu mostrando os números**. É o diagnóstico necessário para calibrar os limiares para a sua mesa, sem inventar mais linhas.
+## Gerar o APK sem Android Studio (Windows Server)
 
-## Verificação executada neste ambiente
+1. Extraia o ZIP na máquina.
+2. No repositório GitHub existente, envie **o conteúdo das pastas** (app, .github, arquivos .gradle etc.) para a raiz, substituindo a versão 0.6.2. Faça commit.
+3. Em GitHub > Actions abra **Build Pool Aim Auto Beta 0.7 APK**. Se o fluxo não iniciar, pressione `Run workflow`.
+4. Se terminar verde, abra `Summary` > `Artifacts` > `pool-aim-auto-v07-debug-apk`, extraia o ZIP de artefato e instale `app-debug.apk` no Android.
+5. Ative a sobreposição, autorize a captura da tela inteira e teste mirando primeiro fora da bola, depois numa bola e finalmente perto das tabelas.
 
-O Java do detector e os testes Java da lógica passaram em testes locais de unidade. **APK Android não foi compilado aqui**; o GitHub Actions fará a compilação e os testes Gradle. Não houve teste em dispositivo real da versão 0.6.2.
+### Diagnóstico
+
+Abra o menu da bola 8: **Mira detectada** indica leitura da guia nativa. **Colisão estimada** significa física calculada sobre uma bola detectada. **Colisão lida** significa duas linhas nativas aceitas pelo detector. As métricas `Imagens`, `guia`, `impactos`, `duplos`, `Física` e `linhas lidas` são cumulativas; não são taxas de acerto verificadas. O botão **Teste da linha branca** verifica se o overlay desenha mesmo quando o detector falha.

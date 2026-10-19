@@ -24,6 +24,9 @@ public final class AimDetector {
         public final int votes;
         public final Branch[] branches;
         public final boolean hasCollision;
+        /** True when impact directions are estimated from detected ball centres. */
+        public final boolean predictedCollision;
+        public final float cueRadius;
 
         Result(float l, float t, float r, float b, float x, float y,
                float dx, float dy, int votes) {
@@ -36,6 +39,12 @@ public final class AimDetector {
         Result(float l, float t, float r, float b, float x, float y,
                float dx, float dy, int votes, Branch[] branches, float collisionX, float collisionY,
                float guideLength) {
+            this(l,t,r,b,x,y,dx,dy,votes,branches,collisionX,collisionY,guideLength,false,0f);
+        }
+        Result(float l, float t, float r, float b, float x, float y,
+               float dx, float dy, int votes, Branch[] branches, float collisionX, float collisionY,
+               float guideLength, boolean predictedCollision, float cueRadius) {
+            this.predictedCollision=predictedCollision; this.cueRadius=cueRadius;
             left=l; top=t; right=r; bottom=b; startX=x; startY=y;
             this.dx=dx; this.dy=dy; this.votes=votes;
             this.branches=branches==null?new Branch[0]:branches;
@@ -188,7 +197,17 @@ public final class AimDetector {
         }
         int coverage=0;for(boolean occupied:sectors)if(occupied)coverage++;
         if(coverage<4||ring<5||center<3) return 0;
-        return outer*2+center+coverage*5+ring;
+        // True cue balls remain roughly circular at 3-4 sampled pixels.
+        // Bright letters can fill a 3x3 square but thin out at these radii.
+        int rim3=0,rim4=0;
+        for(int i=0;i<16;i++) {
+            double a=i*Math.PI/8;
+            int x3=Math.round(x+(float)Math.cos(a)*3f),y3=Math.round(y+(float)Math.sin(a)*3f);
+            int x4=Math.round(x+(float)Math.cos(a)*4f),y4=Math.round(y+(float)Math.sin(a)*4f);
+            if(x3>=0&&x3<w&&y3>=0&&y3<h&&ballWhite(pixels[y3*w+x3]))rim3++;
+            if(x4>=0&&x4<w&&y4>=0&&y4<h&&ballWhite(pixels[y4*w+x4]))rim4++;
+        }
+        return outer*2+center+coverage*5+ring+(rim3*8)+(rim4*6);
     }
 
     private static boolean guideAt(int[] pixels, int w, int h, float x, float y) {
@@ -706,7 +725,7 @@ public final class AimDetector {
             if (ray!=null && ray.support>=6 && ray.longest>=5) {
                 // Prefer a long, uninterrupted native guide over a bright
                 // but unrelated UI word, rail highlight, or table graphic.
-                float total=maxScore*1.2f+ray.support*.5f+ray.longest*2.8f-ray.alternativeScore*1.4f;
+                float total=maxScore*2.2f+ray.support*.5f+ray.longest*1.35f-ray.alternativeScore*1.2f;
                 if (total>bestTotal) { bestTotal=total; bestX=cx; bestY=cy; bestRay=ray; }
             }
             // Non-maximum suppression: don't evaluate the same ball several times.

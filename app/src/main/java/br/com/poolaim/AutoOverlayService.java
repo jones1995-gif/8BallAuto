@@ -52,7 +52,7 @@ public class AutoOverlayService extends Service {
     private ImageReader reader;
     private int captureWidth,captureHeight,density;
     private long lastFrame=0;
-    private int processedFrames=0, detectedFrames=0, impactFrames=0, doubleImpactFrames=0;
+    private int processedFrames=0, detectedFrames=0, impactFrames=0, doubleImpactFrames=0, modelFrames=0, observedFrames=0;
     private boolean rails=true;
     private boolean hasDetection=false;
     private final AimStabilizer stabilizer = new AimStabilizer(0);
@@ -73,7 +73,7 @@ public class AutoOverlayService extends Service {
         if(intent==null||!ACTION_START.equals(intent.getAction()))return START_NOT_STICKY;
         Intent open=new Intent(this,MainActivity.class);
         PendingIntent pi=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification note=new Notification.Builder(this,CHANNEL).setContentTitle("Pool Aim Auto Beta")
+        Notification note=new Notification.Builder(this,CHANNEL).setContentTitle("Pool Aim Auto 0.7")
                 .setContentText("Captura autorizada e mira experimental ativas")
                 .setSmallIcon(android.R.drawable.ic_menu_camera).setContentIntent(pi).setOngoing(true).build();
         if(Build.VERSION.SDK_INT>=29)startForeground(17,note,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
@@ -81,7 +81,7 @@ public class AutoOverlayService extends Service {
         if(bubble==null)buildOverlay();
         if(projection!=null)closeProjection();
         motionGate.reset();stabilizer.reset();lastDisplayedGeometry=null;
-        processedFrames=0;detectedFrames=0;impactFrames=0;doubleImpactFrames=0;lastFrame=0;
+        processedFrames=0;detectedFrames=0;impactFrames=0;doubleImpactFrames=0;modelFrames=0;observedFrames=0;lastFrame=0;
         int result=intent.getIntExtra("resultCode",0);
         Intent data;
         if(Build.VERSION.SDK_INT>=33)data=intent.getParcelableExtra("resultData",Intent.class);
@@ -134,23 +134,37 @@ public class AutoOverlayService extends Service {
             img=src.acquireLatestImage();if(img==null)return;
             long now=android.os.SystemClock.elapsedRealtime(); if(now-lastFrame<120)return;lastFrame=now;
             Image.Plane p=img.getPlanes()[0];ByteBuffer bb=p.getBuffer();bb.rewind();
-            Bitmap bmp=Bitmap.createBitmap(p.getRowStride()/p.getPixelStride(),img.getHeight(),Bitmap.Config.ARGB_8888);
-            bmp.copyPixelsFromBuffer(bb);
+            int paddedWidth=p.getRowStride()/p.getPixelStride();
+            Bitmap padded=Bitmap.createBitmap(paddedWidth,img.getHeight(),Bitmap.Config.ARGB_8888);
+            padded.copyPixelsFromBuffer(bb);
+            // ImageReader rows may include padding. Never scale the padded
+            // width as if it were screen content: doing so shifts the overlay.
+            Bitmap screen=paddedWidth==img.getWidth() ? padded
+                    : Bitmap.createBitmap(padded,0,0,img.getWidth(),img.getHeight());
             // 480px retains short post-collision guide segments that disappeared
             // at 360px while keeping CPU use reasonable for live screen analysis.
             int fw=480,fh=Math.max(120,Math.round(480f*img.getHeight()/img.getWidth()));
-            Bitmap small=Bitmap.createScaledBitmap(bmp,fw,fh,false);int[] rgb=new int[fw*fh];
-            small.getPixels(rgb,0,fw,0,0,fw,fh);small.recycle();bmp.recycle();
+            Bitmap small=Bitmap.createScaledBitmap(screen,fw,fh,false);
+            int[] rgb=new int[fw*fh];
+            small.getPixels(rgb,0,fw,0,0,fw,fh);
+            small.recycle();
+            if(screen!=padded)screen.recycle();
+            padded.recycle();
             // White extensions are visible in some screen-capture pipelines. Mask only
             // the extension we drew last frame, leaving the game's native guide intact.
             int[] detectorPixels=rgb.clone();
             AimDetector.maskOverlayExtensions(detectorPixels,fw,fh,lastDisplayedGeometry);
-            AimDetector.Result raw=AimDetector.detect(detectorPixels,fw,fh);
+            AimDetector.Result nativeGuide=AimDetector.detect(detectorPixels,fw,fh);
+            // Image-data-only physics fallback: detect the coloured/black ball
+            // close to the incoming native guideline endpoint. Native branches
+            // are kept when they agree with the observed ball collision.
+            AimDetector.Result raw=CollisionPhysics.augment(nativeGuide,rgb,fw,fh);
             processedFrames++;
             if(raw!=null)detectedFrames++;
             if(raw!=null && raw.hasCollision && raw.branches.length>0) {
                 impactFrames++;
                 if(raw.branches.length>1) doubleImpactFrames++;
+                if(raw.predictedCollision) modelFrames++; else observedFrames++;
             }
             // The native guide is only present in the aiming phase. Moving the
             // cue also changes many pixels, so it must NOT be treated as a shot.
@@ -174,16 +188,20 @@ public class AutoOverlayService extends Service {
             final int found=detectedFrames;
             final int impacts=impactFrames;
             final int twoOut=doubleImpactFrames;
+            final int modeled=modelFrames, observed=observedFrames;
             final AimDetector.Result shown=res;
             main.post(()->{
                 if(drawing!=null)drawing.update(shown,fw,fh);
                 hasDetection=shown!=null;
                 String diagnostic="\nImagens: "+total+" | guia: "+found+
                         " | impactos: "+impacts+" | duplos: "+twoOut+
+                        "\nFísica: "+modeled+" | linhas lidas: "+observed+
                         "\nCaptura: "+captureWidth+"x"+captureHeight;
                 if(movingNow) statusText("Bolas em movimento • projeção oculta"+diagnostic);
                 else if(shown==null) statusText("Guia não encontrada • confira captura de tela inteira"+diagnostic);
-                else if(shown.hasCollision && shown.branches.length>0) statusText("Colisão • "+shown.branches.length+" saída(s)"+diagnostic);
+                else if(shown.hasCollision && shown.branches.length>0)
+                    statusText((shown.predictedCollision ? "Colisão estimada • " : "Colisão lida • ")+
+                         shown.branches.length+" saída(s)"+diagnostic);
                 else if(shown.hasCollision) statusText("Contato sem saída: prolongamento provisório"+diagnostic);
                 else statusText("Mira detectada • linha estendida"+diagnostic);
             });

@@ -99,38 +99,17 @@ public class TrajectoryView extends View {
 
     private void drawReflectedRay(Canvas canvas,float x,float y,float dx,float dy,
                                   float left,float top,float right,float bottom,int segments,float scale) {
-        float width=right-left,height=bottom-top;
-        float cornerGapX=width*.055f, cornerGapY=height*.10f;
-        float sidePocketGap=height*.085f, middlePocketGap=width*.045f;
-        for(int i=0;i<segments;i++) {
-            float tx=Float.POSITIVE_INFINITY,ty=Float.POSITIVE_INFINITY;
-            if(dx>.0001f) tx=(right-x)/dx; else if(dx<-.0001f) tx=(left-x)/dx;
-            if(dy>.0001f) ty=(bottom-y)/dy; else if(dy<-.0001f) ty=(top-y)/dy;
-            float dt=Math.min(tx,ty);
-            if(!Float.isFinite(dt)||dt<-.1f) return;
-            dt=Math.max(0f,dt);
-            float x2=x+dx*dt,y2=y+dy*dt;
-            canvas.drawLine(x,y,x2,y2,paint);
-            boolean bounceX=tx<=ty+.01f;
-            boolean bounceY=ty<=tx+.01f;
-            boolean pocket=false;
-            if(bounceY) {
-                pocket = x2-left<cornerGapX || right-x2<cornerGapX
-                        || Math.abs(x2-(left+right)/2f)<middlePocketGap;
+        float radius=(result==null || result.cueRadius<1f)
+                ? Math.max(2.6f,(right-left)*.014f):result.cueRadius;
+        java.util.List<RailTrace.Segment> path=RailTrace.trace(x,y,dx,dy,
+                left,top,right,bottom,radius,segments);
+        for(RailTrace.Segment s:path){
+            canvas.drawLine(s.x1,s.y1,s.x2,s.y2,paint);
+            if(s.cushion){
+                paint.setStrokeWidth(1.0f/scale);
+                canvas.drawCircle(s.x2,s.y2,2.1f/scale,paint);
+                paint.setStrokeWidth(1.15f/scale);
             }
-            if(bounceX) {
-                pocket = pocket || y2-top<cornerGapY || bottom-y2<cornerGapY
-                        || Math.abs(y2-(top+bottom)/2f)<sidePocketGap;
-            }
-            if(pocket || (!bounceX && !bounceY)) return;
-            // Small white contact ring at each predicted rail rebound.
-            paint.setStrokeWidth(1.0f/scale);
-            canvas.drawCircle(x2,y2,2.1f/scale,paint);
-            paint.setStrokeWidth(1.15f/scale);
-            if(bounceX) dx=-dx;
-            if(bounceY) dy=-dy;
-            x=x2+dx*.7f;
-            y=y2+dy*.7f;
         }
     }
 }
