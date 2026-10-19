@@ -1,25 +1,33 @@
-# Pool Aim Auto Beta 0.6.1 — correção de linhas invisíveis
+# Pool Aim Auto Beta 0.6.2 (experimental)
 
-Esta revisão corrige uma regressão da versão 0.6: a mira podia ser detectada, mas nenhuma extensão era desenhada.
+Versão baseada no ZIP 0.6.1 fornecido na conversa. Atualizada especificamente para leitura das duas linhas de saída no impacto; a linha do taco e os controles de sobreposição permanecem.
 
-## Alterações objetivas
+## Correções nesta versão
 
-1. **Guia presente = modo mira**: o detector de movimento não deve mais confundir o movimento do taco com uma tacada quando a guia nativa foi reconhecida. Quando a guia some, o app remove as linhas imediatamente e aguarda uma guia nova, evitando desenhar durante o movimento.
-2. **Colisão sem ramos não deixa a tela vazia**: o 0.6 entrava no modo de colisão mesmo com 0 ramificações; o renderizador então não desenhava nada. Agora, nesses casos, prolonga provisoriamente apenas a linha principal. Isso é apenas uma aproximação; não significa que a trajetória pós-colisão foi detectada.
-3. **Diagnóstico no menu da bolinha 8**: botão **Teste da linha branca (6 s)** mostra uma linha e um círculo brancos diretamente na sobreposição, sem precisar detectar o jogo. Isto ajuda a separar falha de permissão/desenho de falha na análise da captura.
-4. **Status com contadores**: o menu mostra número de imagens analisadas, quantas tiveram guia detectada e o tamanho da captura. Se a contagem de guias for zero mesmo mirando, confirme que escolheu **tela inteira** ao autorizar a captura e envie foto do menu.
-5. Mantém ícone bola 8, desenho em branco fino, calculadora de tabelas aproximada, nenhuma seleção manual.
+- Substitui a busca global de segmentos brancos por um rastreamento de raios curtos na vizinhança do possível ponto de colisão.
+- Detecta traços de colisão mais curtos/fracos e distingue os dois ramos a partir do mesmo ponto. Exige evidência visual: não calcula trajetórias de saída fictícias quando a tela não mostra os ramos.
+- Filtra pontos claros que sejam só o tecido da mesa, um risco reto ou uma decoração; verifica contraste em relação ao fundo e objeto circular próximo.
+- Adiciona diagnósticos ao menu: **Imagens / guia / impactos / duplos**. Esses contadores ajudam a distinguir se o problema é na detecção ou na projeção.
+- Mantém as projeções brancas finas, a bolinha 8 para minimizar, passagem de toques, projeção das tabelas e a regra de ocultação durante movimento.
 
-## Como testar
+**Limitações:** A detecção continua experimental. Exemplos desenhados/sintéticos não provam precisão no 8 Ball Pool. Alguns temas de mesa, efeitos de tela e tamanhos do aparelho podem gerar falsos positivos ou perder linhas. Não é previsão física perfeita: força, efeito e atrito alteram o movimento real; reflexos nas tabelas são apenas aproximações geométricas.
 
-1. Instale o APK compilado pelo GitHub Actions a partir deste ZIP.
-2. Abra o aplicativo; permita sobreposição e **inicie reconhecimento**; se Android perguntar entre app individual e tela inteira, prefira **Tela inteira**.
-3. Abra o 8 Ball Pool, toque na bolinha 8 e escolha **Teste da linha branca (6 s)**. Uma linha branca com o texto TESTE DE LINHA deve aparecer sobre o jogo; ela é apenas um teste visual temporário.
-4. Mire com o taco parado e veja o menu: `Imagens` deverá aumentar, `linhas` deverá aumentar quando o detector reconhecer a guia.
-5. Faça uma tacada: a projeção deve desaparecer quando a guia original deixar de ser detectada. O novo detector ainda depende das linhas que o jogo efetivamente renderiza; a identificação de dois ramos e a precisão das tabelas permanecem experimentais.
+## Compilar sem Android Studio
 
-## Compilação (sem Android Studio)
+1. Extraia o ZIP.
+2. No mesmo repositório GitHub, envie os arquivos extraídos mantendo as pastas da raiz (substitua os equivalentes); não envie o ZIP como arquivo isolado.
+3. Faça Commit changes na branch **main**.
+4. Em Actions abra **Build Pool Aim Auto Beta 0.6.2 APK** e acompanhe a execução mais recente.
+5. Se a execução ficar verde, abra Summary > Artifacts > **pool-aim-auto-v062-debug-apk**, extraia e instale o app-debug.apk.
+6. Se houver conflito de assinatura, desinstale a versão anterior; as configurações locais podem ser perdidas.
 
-Envie os arquivos para seu repositório 8Ball no GitHub e faça Commit changes. Em **Actions** rode `Build Pool Aim Auto Beta 0.6.1 APK`. Na execução verde, abra **Summary → Artifacts** e baixe `pool-aim-auto-v061-debug-apk`, extraia e instale `app-debug.apk` no celular.
+## Teste em jogo e diagnóstico
 
-Limitações: testes locais de lógica não validam a captura MediaProjection e a sobreposição no dispositivo. Não foi possível compilar um APK Android completo neste ambiente. Se a assinatura for diferente da instalada, pode ser necessária a desinstalação antes de instalar a nova (isso remove os dados locais deste app auxiliar).
+- Abra o jogo, inicie captura de **tela inteira**, mire sem tocar manualmente em nenhuma bola.
+- Com a bolinha 8, abra o menu e observe o status ao apontar o taco para uma bola.
+- **Mira detectada:** só reconheceu a linha principal; **Colisão • 1 ou 2 saída(s):** encontrou ramos; **impactos / duplos:** contadores de frames identificados.
+- Se só reconhecer a linha do taco, envie **gravação de tela da 0.6.2 com a mira na bola e o menu mostrando os números**. É o diagnóstico necessário para calibrar os limiares para a sua mesa, sem inventar mais linhas.
+
+## Verificação executada neste ambiente
+
+O Java do detector e os testes Java da lógica passaram em testes locais de unidade. **APK Android não foi compilado aqui**; o GitHub Actions fará a compilação e os testes Gradle. Não houve teste em dispositivo real da versão 0.6.2.

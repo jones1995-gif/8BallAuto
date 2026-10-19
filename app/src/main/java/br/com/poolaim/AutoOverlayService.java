@@ -52,7 +52,7 @@ public class AutoOverlayService extends Service {
     private ImageReader reader;
     private int captureWidth,captureHeight,density;
     private long lastFrame=0;
-    private int processedFrames=0, detectedFrames=0;
+    private int processedFrames=0, detectedFrames=0, impactFrames=0, doubleImpactFrames=0;
     private boolean rails=true;
     private boolean hasDetection=false;
     private final AimStabilizer stabilizer = new AimStabilizer(0);
@@ -81,7 +81,7 @@ public class AutoOverlayService extends Service {
         if(bubble==null)buildOverlay();
         if(projection!=null)closeProjection();
         motionGate.reset();stabilizer.reset();lastDisplayedGeometry=null;
-        processedFrames=0;detectedFrames=0;lastFrame=0;
+        processedFrames=0;detectedFrames=0;impactFrames=0;doubleImpactFrames=0;lastFrame=0;
         int result=intent.getIntExtra("resultCode",0);
         Intent data;
         if(Build.VERSION.SDK_INT>=33)data=intent.getParcelableExtra("resultData",Intent.class);
@@ -148,6 +148,10 @@ public class AutoOverlayService extends Service {
             AimDetector.Result raw=AimDetector.detect(detectorPixels,fw,fh);
             processedFrames++;
             if(raw!=null)detectedFrames++;
+            if(raw!=null && raw.hasCollision && raw.branches.length>0) {
+                impactFrames++;
+                if(raw.branches.length>1) doubleImpactFrames++;
+            }
             // The native guide is only present in the aiming phase. Moving the
             // cue also changes many pixels, so it must NOT be treated as a shot.
             // Once the native guide disappears, the motion gate is allowed to
@@ -168,11 +172,15 @@ public class AutoOverlayService extends Service {
             final boolean movingNow=ballsMoving;
             final int total=processedFrames;
             final int found=detectedFrames;
+            final int impacts=impactFrames;
+            final int twoOut=doubleImpactFrames;
             final AimDetector.Result shown=res;
             main.post(()->{
                 if(drawing!=null)drawing.update(shown,fw,fh);
                 hasDetection=shown!=null;
-                String diagnostic="\nImagens: "+total+" | linhas: "+found+" | captura: "+captureWidth+"x"+captureHeight;
+                String diagnostic="\nImagens: "+total+" | guia: "+found+
+                        " | impactos: "+impacts+" | duplos: "+twoOut+
+                        "\nCaptura: "+captureWidth+"x"+captureHeight;
                 if(movingNow) statusText("Bolas em movimento • projeção oculta"+diagnostic);
                 else if(shown==null) statusText("Guia não encontrada • confira captura de tela inteira"+diagnostic);
                 else if(shown.hasCollision && shown.branches.length>0) statusText("Colisão • "+shown.branches.length+" saída(s)"+diagnostic);

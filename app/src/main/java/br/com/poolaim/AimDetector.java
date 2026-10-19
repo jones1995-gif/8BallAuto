@@ -344,7 +344,7 @@ public final class AimDetector {
 
     /** Require the branch junction to have the small bright contact ring used by the game. */
     private static int collisionMarkerScore(int[] pixels,int w,int h,float cx,float cy,Ray primary) {
-        boolean[] sectors=new boolean[8]; int count=0;
+        boolean[] sectors=new boolean[8]; int count=0,positive=0,negative=0;
         for(int y=(int)cy-5;y<=(int)cy+5;y++) {
             if(y<0||y>=h) continue;
             for(int x=(int)cx-5;x<=(int)cx+5;x++) {
@@ -353,13 +353,16 @@ public final class AimDetector {
                 if(dist<2.0f||dist>5.2f) continue;
                 // Exclude pixels belonging only to the incoming guide itself.
                 float perpendicular=Math.abs(ox*primary.dy-oy*primary.dx);
-                if(perpendicular<1.35f) continue;
+                if(perpendicular<1.75f) continue;
+                float signed=ox*primary.dy-oy*primary.dx;
+                if(signed>=0) positive++; else negative++;
                 int sector=(int)Math.floor((Math.atan2(oy,ox)+Math.PI)*(8.0/(2.0*Math.PI)));
                 sectors[Math.max(0,Math.min(7,sector))]=true; count++;
             }
         }
         int coverage=0;for(boolean occupied:sectors)if(occupied)coverage++;
-        return count>=4 && coverage>=3 ? count+coverage*5 : 0;
+        return count>=5 && coverage>=4 && positive>=2 && negative>=2
+                ? count+coverage*5 : 0;
     }
 
     private static boolean hasCollisionMarker(int[] pixels,int w,int h,float cx,float cy,Ray primary) {
@@ -433,6 +436,198 @@ public final class AimDetector {
         return (float)Math.hypot(px-(x1+t*vx),py-(y1+t*vy));
     }
 
+    /** A thin screen-space ray traced from a *known* impact marker. */
+    private static final class LocalRay {
+        final float dx,dy,score;
+        final int length, hits, longest;
+        LocalRay(float dx,float dy,float score,int length,int hits,int longest) {
+            this.dx=dx;this.dy=dy;this.score=score;
+            this.length=length;this.hits=hits;this.longest=longest;
+        }
+    }
+
+    /**
+     * Measure a short native guideline starting just outside the contact ring.
+     * This does not confuse the rail decorations with branches: pixels must be
+     * near the proposed impact point AND form a contiguous thin, bright ray.
+     */
+    private static LocalRay traceLocalRay(int[] pixels,int w,int h,Bounds table,
+                                          float cx,float cy,float dx,float dy) {
+        int hits=0,consecutive=0,longest=0,gaps=0;
+        int furthest=0;
+        // Use 2px samples: all distances are in the downscaled screenshot.
+        for(int r=7;r<=48;r+=2) {
+            float x=cx+dx*r,y=cy+dy*r;
+            if(x<=table.left+2||x>=table.right-2||y<=table.top+2||y>=table.bottom-2) break;
+            boolean bright=branchAt(pixels,w,h,x,y,dx,dy);
+            if(bright) {
+                hits++;consecutive++;gaps=0;
+                furthest=r;
+                longest=Math.max(longest,consecutive);
+            } else {
+                gaps++;
+                if(gaps>=2) consecutive=0;
+            }
+        }
+        float score=hits+longest*1.3f;
+        return new LocalRay(dx,dy,score,furthest,hits,longest);
+    }
+
+    /**
+     * Require a locally brighter, thinner pixel stripe rather than just a
+     * bright pixel. The old low-threshold mask accepted the BLUE FELT itself
+     * as a collision ray, creating two fake 48px branches everywhere.
+     */
+    private static boolean branchAt(int[] pixels,int w,int h,float x,float y,
+                                    float dx,float dy) {
+        for(int oy=-1;oy<=1;oy++) for(int ox=-1;ox<=1;ox++) {
+            int xx=Math.round(x)+ox,yy=Math.round(y)+oy;
+            float px=-dy*4f,py=dx*4f;
+            int ax=Math.round(xx+px),ay=Math.round(yy+py);
+            int bx=Math.round(xx-px),by=Math.round(yy-py);
+            if(xx<0||xx>=w||yy<0||yy>=h||ax<0||ax>=w||ay<0||ay>=h
+                    ||bx<0||bx>=w||by<0||by>=h) continue;
+            int c=pixels[yy*w+xx];
+            int sideA=pixels[ay*w+ax],sideB=pixels[by*w+bx];
+            int dr=red(c)-(red(sideA)+red(sideB))/2;
+            int dg=green(c)-(green(sideA)+green(sideB))/2;
+            int db=blue(c)-(blue(sideA)+blue(sideB))/2;
+            int brightChannels=(dr>10?1:0)+(dg>10?1:0)+(db>10?1:0);
+            if(brightChannels>=2 && dr+dg+db>=55 &&
+                    Math.min(red(c),Math.min(green(c),blue(c)))>=65) return true;
+        }
+        return false;
+    }
+
+    /**
+     * An aim-ring on the end of a cue stick is NOT a ball collision. A real
+     * target must be a compact, roughly circular blob near the junction.
+     * Compare the middle against its surrounding felt along 12 radial spokes,
+     * so this also handles solid-black or striped target balls.
+     */
+    private static boolean objectBallNear(int[] pixels,int w,int h,Bounds bounds,
+                                          float collisionX,float collisionY) {
+        int radius=Math.max(3,Math.min(6,Math.round((bounds.right-bounds.left)*.013f)));
+        int search=radius*3;
+        for(int yy=Math.round(collisionY)-search;yy<=collisionY+search;yy+=2) {
+            for(int xx=Math.round(collisionX)-search;xx<=collisionX+search;xx+=2) {
+                if(Math.hypot(xx-collisionX,yy-collisionY)>search)continue;
+                if(xx<bounds.left+radius*3||xx>bounds.right-radius*3
+                        ||yy<bounds.top+radius*3||yy>bounds.bottom-radius*3) continue;
+                if(compactBlob(pixels,w,h,xx,yy,radius))return true;
+            }
+        }
+        return false;
+    }
+
+    private static int rgbDistance(int a,int b) {
+        return Math.abs(red(a)-red(b))+Math.abs(green(a)-green(b))
+                +Math.abs(blue(a)-blue(b));
+    }
+
+    private static boolean compactBlob(int[] pixels,int w,int h,int cx,int cy,int radius) {
+        int outerRadius=radius*2+2;
+        if(cx-outerRadius<0||cx+outerRadius>=w||cy-outerRadius<0||cy+outerRadius>=h)return false;
+        int center=pixels[cy*w+cx];
+        int contrasting=0,innerUniform=0;
+        for(int i=0;i<12;i++) {
+            double angle=2*Math.PI*i/12.0;
+            float dx=(float)Math.cos(angle),dy=(float)Math.sin(angle);
+            int ix=Math.round(cx+dx*(radius*.55f)),iy=Math.round(cy+dy*(radius*.55f));
+            int ox=Math.round(cx+dx*outerRadius),oy=Math.round(cy+dy*outerRadius);
+            int inner=pixels[iy*w+ix],outer=pixels[oy*w+ox];
+            if(rgbDistance(inner,outer)>=90) contrasting++;
+            if(rgbDistance(center,inner)<=190) innerUniform++;
+        }
+        return contrasting>=9&&innerUniform>=7;
+    }
+
+    /**
+     * Find the *junction* first, then follow the two short outgoing native rays.
+     * The older Hough search across the entire cloth rejected many real impacts:
+     * it required a complete high-contrast circle and long branches, although
+     * in the game they can be short, faint, and only partially visible.
+     *
+     * We accept either (a) a ring + an outgoing ray, or (b) two clear rays
+     * splitting from a single point. A plain uninterrupted guide stays a
+     * no-collision result; no invented post-impact directions are produced.
+     */
+    private static BranchSet findLocalBranches(int[] pixels,int w,int h,Bounds b,
+                                               int cueX,int cueY,Ray primary) {
+        final float maxLength=(float)Math.hypot(b.right-b.left,b.bottom-b.top);
+        final float far=Math.min(maxLength,Math.max(12f,primary.visibleLength+10f));
+        BranchSet best=null;
+        float bestScore=0;
+        // Scan *along the incoming guide*, not unrelated white features elsewhere.
+        // The small normal offsets tolerate 1-degree quantization of findRay().
+        for(float d=12f;d<=far;d+=3f) {
+            for(int lateral=-3;lateral<=3;lateral+=3) {
+                float cx=cueX+primary.dx*d-primary.dy*lateral;
+                float cy=cueY+primary.dy*d+primary.dx*lateral;
+                if(cx<b.left+7||cx>b.right-7||cy<b.top+7||cy>b.bottom-7) continue;
+                int ring=collisionMarkerScore(pixels,w,h,cx,cy,primary);
+                // Rank directions by *local continuation*, rather than votes
+                // contributed by distant white artwork and extra objects.
+                java.util.ArrayList<LocalRay> available=new java.util.ArrayList<>();
+                for(int angle=0;angle<360;angle+=6) {
+                    float rad=(float)Math.toRadians(angle);
+                    float dx=(float)Math.cos(rad),dy=(float)Math.sin(rad);
+                    // Reject a line that simply goes backward to the cue ball.
+                    if(dx*primary.dx+dy*primary.dy < -.83f) continue;
+                    LocalRay sample=traceLocalRay(pixels,w,h,b,cx,cy,dx,dy);
+                    if(sample.hits>=5&&sample.longest>=4&&sample.length>=15
+                            &&sample.score>=9f) available.add(sample);
+                }
+                if(available.isEmpty())continue;
+                available.sort((a,z)->Float.compare(z.score,a.score));
+                java.util.ArrayList<LocalRay> selected=new java.util.ArrayList<>();
+                for(LocalRay candidate:available) {
+                    boolean similar=false;
+                    for(LocalRay other:selected) {
+                        if(candidate.dx*other.dx+candidate.dy*other.dy>.91f) {similar=true;break;}
+                    }
+                    if(!similar) selected.add(candidate);
+                    if(selected.size()>=2)break;
+                }
+                if(selected.isEmpty()) continue;
+                if(selected.size()>=2) {
+                    // Normal pool-ball contact produces nearly perpendicular
+                    // outgoing paths. Discard two arbitrary, nearly parallel
+                    // (or opposite) artwork/cue-stick strokes at a cursor ring.
+                    float alignment=selected.get(0).dx*selected.get(1).dx
+                            +selected.get(0).dy*selected.get(1).dy;
+                    if(Math.abs(alignment)>.64f) continue;
+                }
+                // Ringless branching must have two independently supported rays,
+                // one sufficiently different from the incoming direction.
+                if(ring==0) {
+                    if(selected.size()<2) continue;
+                    boolean divergent=false;
+                    for(LocalRay candidate:selected)
+                        if(candidate.dx*primary.dx+candidate.dy*primary.dy<.88f) divergent=true;
+                    float branchDot=selected.get(0).dx*selected.get(1).dx
+                            +selected.get(0).dy*selected.get(1).dy;
+                    // A one-pixel straight guideline can produce two almost
+                    // parallel scored angles. Those are not outgoing balls.
+                    if(!divergent || branchDot>.78f) continue;
+                }
+                // The contact ring must also belong to a *ball*, not just the
+                // aiming cursor at the tip of the cue. Do not invent impacts.
+                if(!objectBallNear(pixels,w,h,b,cx,cy))continue;
+                float quality=(ring>0?14f+Math.min(20f,ring*.35f):0f);
+                for(LocalRay selectedRay:selected) quality+=Math.min(21f,selectedRay.score);
+                if(selected.size()>1) quality+=8f;
+                quality-=Math.abs(d-primary.visibleLength)*.12f;
+                if(quality<=bestScore)continue;
+                java.util.ArrayList<Branch> outgoing=new java.util.ArrayList<>();
+                for(LocalRay ray:selected) outgoing.add(new Branch(cx,cy,ray.dx,ray.dy,ray.length));
+                best=new BranchSet(outgoing.toArray(new Branch[0]),cx,cy);
+                bestScore=quality;
+            }
+        }
+        return best==null?new BranchSet(new Branch[0],Float.NaN,Float.NaN):best;
+    }
+
     private static BranchSet includeCollinearTargetPath(int[] pixels,int w,int h,Bounds table,
                                                           int cueX,int cueY,Ray primary,BranchSet found) {
         float maxT=(float)Math.hypot(table.right-table.left,table.bottom-table.top);
@@ -446,6 +641,7 @@ public final class AimDetector {
         }
         if(!Float.isFinite(bestT)) return found;
         float cx=cueX+primary.dx*bestT,cy=cueY+primary.dy*bestT;
+        if(!objectBallNear(pixels,w,h,table,cx,cy)) return found;
         java.util.ArrayList<Branch> branches=new java.util.ArrayList<>();
         for(Branch b:found.branches) branches.add(b);
         boolean hasParallel=false;
@@ -521,8 +717,12 @@ public final class AimDetector {
             }
         }
         if (bestRay==null) return null;
-        BranchSet branchSet=findBranches(pixels,w,h,table,bestX,bestY,bestRay);
-        branchSet=includeCollinearTargetPath(pixels,w,h,table,bestX,bestY,bestRay,branchSet);
+        BranchSet branchSet=findLocalBranches(pixels,w,h,table,bestX,bestY,bestRay);
+        if(branchSet.branches.length==0) {
+            // Collinear target trajectories are only accepted if a complete
+            // multi-sector contact ring is visible; a plain cue line is not one.
+            branchSet=includeCollinearTargetPath(pixels,w,h,table,bestX,bestY,bestRay,branchSet);
+        }
         return new Result(table.left,table.top,table.right,table.bottom,
                 bestX,bestY,bestRay.dx,bestRay.dy,
                 (int)(bestRay.support+bestRay.longest*.7f),branchSet.branches,branchSet.x,branchSet.y,bestRay.visibleLength);

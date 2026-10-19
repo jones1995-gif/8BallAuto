@@ -21,6 +21,13 @@ public class AimDetectorTest {
         }
     }
 
+    private static void drawObjectBall(int[] p,int w,int h,int x,int y) {
+        for(int dy=-3;dy<=3;dy++) for(int dx=-3;dx<=3;dx++) {
+            if(dx*dx+dy*dy<=9&&x+dx>=0&&x+dx<w&&y+dy>=0&&y+dy<h)
+                p[(y+dy)*w+x+dx]=0xff090909;
+        }
+    }
+
     private static void drawRing(int[] p,int w,int h,int cx,int cy,int radius) {
         for(int a=0;a<360;a+=12) {
             int x=Math.round(cx+(float)Math.cos(Math.toRadians(a))*radius);
@@ -69,6 +76,7 @@ public class AimDetectorTest {
         drawLine(p,w,h,70,72,145,98);
         setWhite(p,w,h,70,72,2);
         drawRing(p,w,h,145,98,4);
+        drawObjectBall(p,w,h,156,98);
         drawLine(p,w,h,145,98,250,68);
         drawLine(p,w,h,145,98,205,160);
         AimDetector.Result result=AimDetector.detect(p,w,h);
@@ -77,6 +85,32 @@ public class AimDetectorTest {
         assertTrue("collision marker should be recognized",result.hasCollision);
         assertTrue("both post-collision directions should be detected",result.branches.length>=2);
         assertTrue(Math.abs(result.collisionX-145)<5 && Math.abs(result.collisionY-98)<5);
+    }
+
+    @Test public void detectsShortFaintBranchesWithoutFullyVisibleRing() {
+        int w=360,h=210;
+        int[] p=redTable(w,h);
+        drawLine(p,w,h,70,72,145,98);
+        setWhite(p,w,h,70,72,2);
+        drawObjectBall(p,w,h,156,98);
+        // Short 1-pixel branches that might be missed by a global Hough transform.
+        drawLine(p,w,h,145,98,190,80);
+        drawLine(p,w,h,145,98,177,121);
+        AimDetector.Result r=AimDetector.detect(p,w,h);
+        assertNotNull(r);
+        assertTrue("both paths should be traced from a local junction",r.hasCollision);
+        assertEquals(2,r.branches.length);
+    }
+
+    @Test public void plainCueGuideHasNoFakeCollision() {
+        int w=360,h=210;
+        int[] p=redTable(w,h);
+        drawLine(p,w,h,70,72,255,128);
+        setWhite(p,w,h,70,72,2);
+        AimDetector.Result r=AimDetector.detect(p,w,h);
+        assertNotNull(r);
+        assertFalse("straight cue guide is not itself a collision",r.hasCollision);
+        assertEquals(0,r.branches.length);
     }
 
     @Test public void blankHasNoResult() {
@@ -119,6 +153,7 @@ public class AimDetectorTest {
         drawLine(p,w,h,70,72,260,138);
         setWhite(p,w,h,70,72,2);
         drawRing(p,w,h,145,98,4);
+        drawObjectBall(p,w,h,156,98);
         AimDetector.Result result=AimDetector.detect(p,w,h);
         assertNotNull(result);
         assertTrue("contact marker on a straight-on shot should be detected",result.hasCollision);
